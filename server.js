@@ -31,14 +31,16 @@ webpush.setVapidDetails('mailto:gujjarpenthouse@gmail.com', VAPID_PUBLIC_KEY, VA
 // Sends a notification to every subscribed device belonging to the given users
 // (or everyone, if excludeUserId is the only filter). Cleans up subscriptions
 // that have gone stale (e.g. the user uninstalled the app).
-async function sendPushToUsers({ excludeUserId, title, body, tag }) {
+async function sendPushToUsers({ excludeUserId, title, body, tag, type, data }) {
   const targets = db.pushSubscriptions.filter(s => s.user_id !== excludeUserId);
   const stillValid = [];
   let changed = false;
 
+  const payload = JSON.stringify({ title, body, tag, type, data });
+
   await Promise.all(targets.map(async (sub) => {
     try {
-      await webpush.sendNotification(sub.subscription, JSON.stringify({ title, body, tag }));
+      await webpush.sendNotification(sub.subscription, payload);
       stillValid.push(sub);
     } catch (err) {
       changed = true; // subscription expired or was revoked — drop it
@@ -324,9 +326,11 @@ io.on('connection', (socket) => {
     if (wasEmpty) {
       sendPushToUsers({
         excludeUserId: socket.user.id,
-        title: `${socket.user.name} started a call`,
-        body: 'Tap to join the call in Gujjar Penthouse.',
+        title: `📞 ${socket.user.name} is calling Gujjar Penthouse`,
+        body: 'Join or decline the house call.',
         tag: 'gp-call',
+        type: 'call-invite',
+        data: { callerName: socket.user.name },
       }).catch(() => {});
     }
   });
