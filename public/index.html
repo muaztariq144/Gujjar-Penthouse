@@ -58,6 +58,7 @@
     <button class="page-btn active" data-page="expenses">💸 Expenses</button>
     <button class="page-btn" data-page="balances">📊 Balances</button>
     <button class="page-btn" data-page="chat">💬 Chat</button>
+    <button class="page-btn" data-page="call">📞 Call</button>
   </nav>
 
   <!-- Expenses page -->
@@ -98,6 +99,24 @@
         <button type="submit">Send</button>
       </form>
     </div>
+  </section>
+
+  <!-- Call page -->
+  <section id="page-call" class="page">
+    <div class="card">
+      <h2>House call</h2>
+      <p class="exp-meta" id="call-status">Not in the call.</p>
+      <div id="call-controls">
+        <button id="call-join-btn">📞 Join call</button>
+      </div>
+      <div id="call-active-controls" class="hidden">
+        <button id="call-mute-btn">🎤 Mute</button>
+        <button id="call-camera-btn">📷 Camera off</button>
+        <button id="call-leave-btn" class="danger-btn">✖ Leave call</button>
+      </div>
+      <p class="error" id="call-error"></p>
+    </div>
+    <div id="call-grid" class="call-grid"></div>
   </section>
 </div>
 
