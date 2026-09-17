@@ -136,6 +136,36 @@ async function startApp() {
   await loadMessages();
   connectSocket();
   setupNotifications();
+  maybeAutoJoinCall();
+}
+
+// ---------- Incoming-call notification handling ----------
+// If someone tapped "Join" on a call notification while the app was already
+// open, the service worker messages us directly.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'join-call') {
+      goToCallPageAndJoin();
+    }
+  });
+}
+
+// If the app had to be opened fresh (it wasn't running), the service worker
+// opens it at /?join-call=1 instead. Check for that once we've logged in.
+function maybeAutoJoinCall() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('join-call') === '1') {
+    history.replaceState(null, '', location.pathname);
+    goToCallPageAndJoin();
+  }
+}
+
+function goToCallPageAndJoin() {
+  $$('.page-btn').forEach((b) => b.classList.remove('active'));
+  $$('.page').forEach((p) => p.classList.remove('active'));
+  $('.page-btn[data-page="call"]').classList.add('active');
+  $('#page-call').classList.add('active');
+  if (!inCall) joinCall();
 }
 
 // ---------- Push notifications ----------
