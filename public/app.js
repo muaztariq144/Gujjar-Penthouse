@@ -356,6 +356,37 @@ function connectSocket() {
   socket.on('expense:deleted', async () => {
     await loadExpenses();
   });
+
+  // ---------- Call signaling ----------
+  socket.on('call:peer-joined', ({ socketId, userName }) => {
+    // The new peer will send us an offer shortly; just remember their name for the tile.
+    pendingPeerNames[socketId] = userName;
+  });
+
+  socket.on('call:peer-left', ({ socketId }) => {
+    closePeerConnection(socketId);
+  });
+
+  socket.on('call:offer', async ({ from, userName, offer }) => {
+    pendingPeerNames[from] = userName;
+    const pc = getOrCreatePeerConnection(from);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('call:answer', { to: from, answer });
+  });
+
+  socket.on('call:answer', async ({ from, answer }) => {
+    const pc = peerConnections[from];
+    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  });
+
+  socket.on('call:ice-candidate', async ({ from, candidate }) => {
+    const pc = peerConnections[from];
+    if (pc && candidate) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+    }
+  });
 }
 
 function escapeHtml(str) {
@@ -365,6 +396,151 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ---------- Voice/video call ----------
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+let localStream = null;
+let inCall = false;
+let isMuted = false;
+let isCameraOff = false;
+const peerConnections = {}; // socketId -> RTCPeerConnection
+const pendingPeerNames = {}; // socketId -> userName (known before their video tile exists)
+
+function getOrCreatePeerConnection(peerSocketId) {
+  if (peerConnections[peerSocketId]) return peerConnections[peerSocketId];
+
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  peerConnections[peerSocketId] = pc;
+
+  if (localStream) {
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+  }
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('call:ice-candidate', { to: peerSocketId, candidate: event.candidate });
+    }
+  };
+
+  pc.ontrack = (event) => {
+    addRemoteTile(peerSocketId, pendingPeerNames[peerSocketId] || 'Roommate', event.streams[0]);
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+      closePeerConnection(peerSocketId);
+    }
+  };
+
+  return pc;
+}
+
+function closePeerConnection(socketId) {
+  const pc = peerConnections[socketId];
+  if (pc) {
+    pc.close();
+    delete peerConnections[socketId];
+  }
+  delete pendingPeerNames[socketId];
+  const tile = document.getElementById(`call-tile-${socketId}`);
+  if (tile) tile.remove();
+}
+
+function addRemoteTile(socketId, name, stream) {
+  let tile = document.getElementById(`call-tile-${socketId}`);
+  if (!tile) {
+    tile = document.createElement('div');
+    tile.className = 'call-tile';
+    tile.id = `call-tile-${socketId}`;
+    tile.innerHTML = `<video autoplay playsinline></video><span class="call-tile-name">${escapeHtml(name)}</span>`;
+    $('#call-grid').appendChild(tile);
+  }
+  const video = tile.querySelector('video');
+  if (video.srcObject !== stream) video.srcObject = stream;
+}
+
+function addLocalTile() {
+  let tile = document.getElementById('call-tile-me');
+  if (!tile) {
+    tile = document.createElement('div');
+    tile.className = 'call-tile';
+    tile.id = 'call-tile-me';
+    tile.innerHTML = `<video autoplay playsinline muted></video><span class="call-tile-name">You</span>`;
+    $('#call-grid').prepend(tile);
+  }
+  tile.querySelector('video').srcObject = localStream;
+}
+
+async function joinCall() {
+  $('#call-error').textContent = '';
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (err) {
+    $('#call-error').textContent = 'Could not access your camera/microphone. Check your browser permissions.';
+    return;
+  }
+
+  addLocalTile();
+  inCall = true;
+  $('#call-status').textContent = 'In the call.';
+  $('#call-controls').classList.add('hidden');
+  $('#call-active-controls').classList.remove('hidden');
+
+  socket.emit('call:join', {}, async ({ peers }) => {
+    for (const peer of peers) {
+      pendingPeerNames[peer.socketId] = peer.userName;
+      const pc = getOrCreatePeerConnection(peer.socketId);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('call:offer', { to: peer.socketId, offer });
+    }
+  });
+}
+
+function leaveCallClient() {
+  socket.emit('call:leave');
+  Object.keys(peerConnections).forEach(closePeerConnection);
+  if (localStream) {
+    localStream.getTracks().forEach((track) => track.stop());
+    localStream = null;
+  }
+  const myTile = document.getElementById('call-tile-me');
+  if (myTile) myTile.remove();
+
+  inCall = false;
+  isMuted = false;
+  isCameraOff = false;
+  $('#call-mute-btn').textContent = '🎤 Mute';
+  $('#call-camera-btn').textContent = '📷 Camera off';
+  $('#call-status').textContent = 'Not in the call.';
+  $('#call-controls').classList.remove('hidden');
+  $('#call-active-controls').classList.add('hidden');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  $('#call-join-btn').addEventListener('click', joinCall);
+  $('#call-leave-btn').addEventListener('click', leaveCallClient);
+
+  $('#call-mute-btn').addEventListener('click', () => {
+    if (!localStream) return;
+    isMuted = !isMuted;
+    localStream.getAudioTracks().forEach((track) => (track.enabled = !isMuted));
+    $('#call-mute-btn').textContent = isMuted ? '🔇 Unmute' : '🎤 Mute';
+  });
+
+  $('#call-camera-btn').addEventListener('click', () => {
+    if (!localStream) return;
+    isCameraOff = !isCameraOff;
+    localStream.getVideoTracks().forEach((track) => (track.enabled = !isCameraOff));
+    $('#call-camera-btn').textContent = isCameraOff ? '📷 Camera on' : '📷 Camera off';
+  });
+});
+
+// Leave the call cleanly if the tab/app is closed while in a call.
+window.addEventListener('beforeunload', () => {
+  if (inCall && socket) socket.emit('call:leave');
+});
 
 // ---------- Init ----------
 tryAutoLogin();
