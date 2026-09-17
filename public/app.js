@@ -7,6 +7,39 @@ let socket = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+// ---------- Installable app (PWA) ----------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+  });
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = $('#install-btn');
+  if (btn) btn.classList.remove('hidden');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const installBtn = $('#install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      installBtn.classList.add('hidden');
+    });
+  }
+});
+
+window.addEventListener('appinstalled', () => {
+  const btn = $('#install-btn');
+  if (btn) btn.classList.add('hidden');
+});
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
