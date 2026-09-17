@@ -54,6 +54,20 @@ async function api(path, options = {}) {
   return data;
 }
 
+// ---------- Media upload (used by both chat attachments and feed posts) ----------
+async function uploadFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed.');
+  return data; // { url, name, mime, kind, size }
+}
+
 // ---------- Auth screen tabs ----------
 $$('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -139,9 +153,12 @@ async function startApp() {
   await loadExpenses();
   await loadBalances();
   await loadMessages();
+  await loadFeed();
   connectSocket();
   setupNotifications();
   maybeAutoJoinCall();
+  setupChatMediaInput();
+  setupPostMediaInput();
 }
 
 // ---------- Incoming-call notification handling ----------
@@ -480,6 +497,17 @@ async function loadMessages() {
   box.scrollTop = box.scrollHeight;
 }
 
+function renderAttachment(attachment) {
+  if (!attachment || !attachment.url) return '';
+  if (attachment.kind === 'image') {
+    return `<a class="msg-media" href="${attachment.url}" target="_blank" rel="noopener"><img src="${attachment.url}" alt="" /></a>`;
+  }
+  if (attachment.kind === 'video') {
+    return `<div class="msg-media"><video src="${attachment.url}" controls></video></div>`;
+  }
+  return `<a class="msg-file-chip" href="${attachment.url}" download target="_blank" rel="noopener">📎 ${escapeHtml(attachment.name || 'File')}</a>`;
+}
+
 function renderMessage(m) {
   const mine = m.user_id === me.id;
   const name = m.user_name || userName(m.user_id);
@@ -489,7 +517,8 @@ function renderMessage(m) {
       <div class="chat-msg">
         <div class="bubble">
           ${mine ? '' : `<div class="sender" style="color:${colorForName(name)};">${escapeHtml(name)}</div>`}
-          <span class="msg-text">${escapeHtml(m.text)}</span>
+          ${renderAttachment(m.attachment)}
+          ${m.text ? `<span class="msg-text">${escapeHtml(m.text)}</span>` : ''}
           <span class="msg-time">${time}</span>
         </div>
       </div>
@@ -497,13 +526,77 @@ function renderMessage(m) {
   `;
 }
 
-$('#chat-form').addEventListener('submit', (e) => {
+// ---------- Chat media attachments ----------
+let chatPendingAttachment = null;
+let chatPendingUploadPromise = null;
+
+function showChatMediaPreviewLoading(file) {
+  const box = $('#chat-media-preview');
+  if (!box) return;
+  const url = URL.createObjectURL(file);
+  const isImage = file.type.startsWith('image/');
+  const isVideo = file.type.startsWith('video/');
+  box.innerHTML = `
+    ${isImage ? `<img src="${url}" />` : isVideo ? `<video src="${url}" muted></video>` : `<div style="padding:14px;color:white;font-size:13px;">📎 ${escapeHtml(file.name)}</div>`}
+    <button type="button" class="remove-media-btn" id="chat-media-remove">✕</button>
+  `;
+  box.classList.remove('hidden');
+  $('#chat-media-remove').addEventListener('click', clearChatMediaPreview);
+}
+
+function clearChatMediaPreview() {
+  const box = $('#chat-media-preview');
+  if (!box) return;
+  box.innerHTML = '';
+  box.classList.add('hidden');
+  chatPendingAttachment = null;
+  chatPendingUploadPromise = null;
+}
+
+function setupChatMediaInput() {
+  const input = $('#chat-media-input');
+  if (!input) return;
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    showChatMediaPreviewLoading(file);
+    chatPendingUploadPromise = uploadFile(file)
+      .then((result) => {
+        chatPendingAttachment = result;
+        return result;
+      })
+      .catch((err) => {
+        alert(err.message || 'Could not upload that file.');
+        clearChatMediaPreview();
+        return null;
+      });
+    await chatPendingUploadPromise;
+  });
+}
+
+$('#chat-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $('#chat-input');
   const text = input.value.trim();
-  if (!text || !socket) return;
-  socket.emit('chat:send', text);
+
+  let attachment = null;
+  if (chatPendingUploadPromise) {
+    attachment = await chatPendingUploadPromise;
+    if (!attachment) return; // upload failed — already alerted, keep the draft
+  }
+
+  if (!text && !attachment) return;
+  if (!socket) return;
+
+  socket.emit('chat:send', {
+    text,
+    attachment: attachment
+      ? { url: attachment.url, name: attachment.name, mime: attachment.mime, kind: attachment.kind }
+      : null,
+  });
   input.value = '';
+  clearChatMediaPreview();
 });
 
 function connectSocket() {
@@ -523,6 +616,54 @@ function connectSocket() {
 
   socket.on('expense:deleted', async () => {
     await loadExpenses();
+  });
+
+  // ---------- Feed ----------
+  socket.on('post:new', (post) => {
+    if (posts.find(p => p.id === post.id)) return;
+    posts.unshift(post);
+    const list = $('#feed-list');
+    if (list) {
+      const empty = list.querySelector('.empty-state');
+      if (empty) list.innerHTML = '';
+      list.insertAdjacentHTML('afterbegin', renderPostCard(post));
+    }
+  });
+
+  socket.on('post:deleted', ({ id }) => {
+    posts = posts.filter(p => p.id !== id);
+    const card = document.querySelector(`.post-card[data-post-id="${id}"]`);
+    if (card) card.remove();
+    const list = $('#feed-list');
+    if (list && posts.length === 0) {
+      list.innerHTML = '<p class="empty-state">No posts yet — share the first one above! 🎉</p>';
+    }
+  });
+
+  socket.on('post:like-update', ({ id, likes }) => {
+    const post = posts.find(p => p.id === id);
+    if (!post) return;
+    post.likes = likes;
+    const card = document.querySelector(`.post-card[data-post-id="${id}"]`);
+    if (!card) return;
+    const btn = card.querySelector('[data-action="like-post"]');
+    if (btn) {
+      const likedByMe = likes.includes(me.id);
+      btn.classList.toggle('liked', likedByMe);
+      btn.innerHTML = `${likedByMe ? '❤️' : '🤍'} <span class="count">${likes.length}</span>`;
+    }
+  });
+
+  socket.on('post:comment-new', ({ postId, comment }) => {
+    const post = posts.find(p => p.id === postId);
+    if (!post) return;
+    post.comments.push(comment);
+    const card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (!card) return;
+    const commentsBox = card.querySelector('.post-card-comments');
+    if (commentsBox) commentsBox.insertAdjacentHTML('beforeend', renderComment(comment));
+    const countEls = card.querySelectorAll('.post-action-btn .count');
+    if (countEls[1]) countEls[1].textContent = post.comments.length;
   });
 
   // ---------- Call signaling ----------
@@ -553,6 +694,202 @@ function connectSocket() {
     const pc = peerConnections[from];
     if (pc && candidate) {
       try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+    }
+  });
+}
+
+// ---------- Feed (Instagram-style posts) ----------
+let posts = [];
+let postPendingAttachment = null;
+let postPendingUploadPromise = null;
+
+function showPostMediaPreviewLoading(file) {
+  const box = $('#post-media-preview');
+  if (!box) return;
+  const url = URL.createObjectURL(file);
+  const isImage = file.type.startsWith('image/');
+  box.innerHTML = `
+    ${isImage ? `<img src="${url}" />` : `<video src="${url}" muted controls></video>`}
+    <button type="button" class="remove-media-btn" id="post-media-remove">✕</button>
+  `;
+  box.classList.remove('hidden');
+  $('#post-media-remove').addEventListener('click', clearPostMediaPreview);
+}
+
+function clearPostMediaPreview() {
+  const box = $('#post-media-preview');
+  if (!box) return;
+  box.innerHTML = '';
+  box.classList.add('hidden');
+  postPendingAttachment = null;
+  postPendingUploadPromise = null;
+}
+
+function setupPostMediaInput() {
+  const input = $('#post-media-input');
+  if (!input) return;
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    showPostMediaPreviewLoading(file);
+    postPendingUploadPromise = uploadFile(file)
+      .then((result) => {
+        postPendingAttachment = result;
+        return result;
+      })
+      .catch((err) => {
+        alert(err.message || 'Could not upload that file.');
+        clearPostMediaPreview();
+        return null;
+      });
+    await postPendingUploadPromise;
+  });
+}
+
+$('#post-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#post-error').textContent = '';
+  const captionInput = $('#post-caption');
+  const caption = captionInput.value.trim();
+
+  let media = null;
+  if (postPendingUploadPromise) {
+    const uploaded = await postPendingUploadPromise;
+    if (!uploaded) return; // upload failed — already alerted
+    media = { url: uploaded.url, kind: uploaded.kind === 'video' ? 'video' : 'image' };
+  }
+
+  if (!caption && !media) {
+    $('#post-error').textContent = 'Add a caption or a photo/video.';
+    return;
+  }
+
+  const submitBtn = $('#post-submit-btn');
+  submitBtn.disabled = true;
+  try {
+    await api('/api/posts', { method: 'POST', body: JSON.stringify({ caption, media }) });
+    captionInput.value = '';
+    clearPostMediaPreview();
+  } catch (err) {
+    $('#post-error').textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+async function loadFeed() {
+  const data = await api('/api/posts');
+  posts = data.posts;
+  renderFeed();
+}
+
+function renderFeed() {
+  const list = $('#feed-list');
+  if (!list) return;
+  if (posts.length === 0) {
+    list.innerHTML = '<p class="empty-state">No posts yet — share the first one above! 🎉</p>';
+    return;
+  }
+  list.innerHTML = posts.map(renderPostCard).join('');
+}
+
+function timeAgo(timestamp) {
+  const diffMs = Date.now() - timestamp;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function renderComment(c) {
+  return `
+    <div class="post-comment-row">
+      <span class="comment-author" style="color:${colorForName(c.user_name)};">${escapeHtml(c.user_name)}</span>${escapeHtml(c.text)}
+    </div>
+  `;
+}
+
+function renderPostCard(post) {
+  const isMine = post.user_id === me.id;
+  const likedByMe = post.likes.includes(me.id);
+  const mediaHtml = post.media
+    ? (post.media.kind === 'video'
+        ? `<div class="post-card-media"><video src="${post.media.url}" controls></video></div>`
+        : `<div class="post-card-media"><img src="${post.media.url}" alt="" /></div>`)
+    : '';
+
+  return `
+    <div class="post-card" data-post-id="${post.id}">
+      <div class="post-card-header">
+        ${avatarHtml(post.user_name, '', 38)}
+        <div class="post-card-header-info">
+          <div class="post-card-header-name">${escapeHtml(post.user_name)}${isMine ? ' (you)' : ''}</div>
+          <div class="post-card-header-time">${timeAgo(post.created_at)}</div>
+        </div>
+        ${isMine ? `<button class="post-delete-btn" data-action="delete-post" title="Delete post">🗑️</button>` : ''}
+      </div>
+      ${post.caption ? `<div class="post-card-caption">${escapeHtml(post.caption)}</div>` : ''}
+      ${mediaHtml}
+      <div class="post-card-actions">
+        <button class="post-action-btn ${likedByMe ? 'liked' : ''}" data-action="like-post">${likedByMe ? '❤️' : '🤍'} <span class="count">${post.likes.length}</span></button>
+        <span class="post-action-btn" style="cursor:default;">💬 <span class="count">${post.comments.length}</span></span>
+      </div>
+      <div class="post-card-comments">${post.comments.map(renderComment).join('')}</div>
+      <form class="post-comment-form" data-action="comment-form">
+        <input type="text" placeholder="Add a comment..." maxlength="500" required />
+        <button type="submit">Post</button>
+      </form>
+    </div>
+  `;
+}
+
+const feedListEl = $('#feed-list');
+if (feedListEl) {
+  feedListEl.addEventListener('click', async (e) => {
+    const likeBtn = e.target.closest('[data-action="like-post"]');
+    if (likeBtn) {
+      const postId = likeBtn.closest('.post-card').dataset.postId;
+      try {
+        await api(`/api/posts/${postId}/like`, { method: 'POST' });
+      } catch (err) {
+        alert(err.message);
+      }
+      return;
+    }
+
+    const deleteBtn = e.target.closest('[data-action="delete-post"]');
+    if (deleteBtn) {
+      const postId = deleteBtn.closest('.post-card').dataset.postId;
+      if (!confirm('Delete this post?')) return;
+      try {
+        await api(`/api/posts/${postId}`, { method: 'DELETE' });
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+  });
+
+  feedListEl.addEventListener('submit', async (e) => {
+    const form = e.target.closest('[data-action="comment-form"]');
+    if (!form) return;
+    e.preventDefault();
+    const postId = form.closest('.post-card').dataset.postId;
+    const input = form.querySelector('input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.disabled = true;
+    try {
+      await api(`/api/posts/${postId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+      input.value = '';
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      input.disabled = false;
     }
   });
 }
