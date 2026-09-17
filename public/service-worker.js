@@ -48,23 +48,53 @@ self.addEventListener('push', (event) => {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {}
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      tag: data.tag || 'gp-notification',
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-    })
-  );
+  const isCallInvite = data.type === 'call-invite';
+
+  const options = {
+    body: data.body,
+    tag: data.tag || 'gp-notification',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: { type: data.type, extra: data.data },
+    // Ring-style behavior: stay on screen until the person acts on it,
+    // and re-vibrate/re-alert even if a gp-call notification is already showing.
+    requireInteraction: isCallInvite,
+    renotify: isCallInvite,
+    vibrate: isCallInvite ? [300, 150, 300, 150, 300] : undefined,
+  };
+
+  // Actionable "Join" / "Decline" buttons — only Chrome/Android supports this
+  // (`actions`). Browsers that don't support it (notably iOS Safari) just show
+  // a normal tap-to-open notification instead, so this degrades gracefully.
+  if (isCallInvite) {
+    options.actions = [
+      { action: 'join', title: '✅ Join' },
+      { action: 'decline', title: '❌ Decline' },
+    ];
+  }
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
 self.addEventListener('notificationclick', (event) => {
+  const notifData = event.notification.data || {};
   event.notification.close();
+
+  // "Decline" just dismisses the notification — nothing else to do.
+  if (event.action === 'decline') return;
+
+  const wantsToJoin = notifData.type === 'call-invite'; // true for both the "Join" button and a plain tap on the call notification
+
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientsArr) => {
       const existing = clientsArr.find((c) => 'focus' in c);
-      if (existing) return existing.focus();
-      return self.clients.openWindow('/');
+      if (existing) {
+        await existing.focus();
+        if (wantsToJoin) existing.postMessage({ type: 'join-call' });
+        return;
+      }
+      const url = wantsToJoin ? '/?join-call=1' : '/';
+      return self.clients.openWindow(url);
     })
   );
 });
