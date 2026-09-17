@@ -1,0 +1,19 @@
+{
+  "users": [
+    {
+      "id": "b7cfab1e-d9da-4e3c-b2f2-f485161a92d9",
+      "name": "Muaz Tariq",
+      "password_hash": "$2a$10$Tngtj2ZZk6dd7Q8hL1J8B.OvxmcXTKTu9s/fekMEuSKkYsYMGDZGW",
+      "created_at": 1789675352365
+    }
+  ],
+  "sessions": [
+    {
+      "token": "3944f264-9bd1-4dcd-bbca-f0db03374aaa",
+      "user_id": "b7cfab1e-d9da-4e3c-b2f2-f485161a92d9",
+      "created_at": 1789675352365
+    }
+  ],
+  "expenses": [],
+  "messages": []
+}
