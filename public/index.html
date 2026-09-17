@@ -12,6 +12,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Gujjar PH" />
+<script>
+  // Apply saved dark-mode preference before first paint, so there's no flash.
+  try {
+    if (localStorage.getItem('gp_theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch {}
+</script>
 </head>
 <body>
 
@@ -28,16 +34,53 @@
 
     <form id="login-form" class="auth-form">
       <input type="text" id="login-name" placeholder="Your name" required />
-      <input type="password" id="login-password" placeholder="Password" required />
+      <div class="password-field-wrap">
+        <input type="password" id="login-password" placeholder="Password" required />
+        <button type="button" class="show-pass-btn" data-target="login-password">👁️</button>
+      </div>
       <button type="submit">Log in</button>
       <p class="error" id="login-error"></p>
+      <button type="button" class="link-btn" id="forgot-password-link">Forgot password?</button>
     </form>
 
     <form id="signup-form" class="auth-form hidden">
       <input type="text" id="signup-name" placeholder="Your name (e.g. Ali)" required />
-      <input type="password" id="signup-password" placeholder="Choose a password" required />
+      <input type="email" id="signup-email" placeholder="Email address" required />
+      <div class="password-field-wrap">
+        <input type="password" id="signup-password" placeholder="Choose a password" required />
+        <button type="button" class="show-pass-btn" data-target="signup-password">👁️</button>
+      </div>
       <button type="submit">Create account</button>
       <p class="error" id="signup-error"></p>
+    </form>
+  </div>
+</div>
+
+<!-- ===== FORGOT PASSWORD MODAL ===== -->
+<div id="forgot-password-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Reset your password</h2>
+      <button type="button" class="modal-close-btn" data-close-modal="forgot-password-modal">✕</button>
+    </div>
+
+    <form id="forgot-request-form" class="auth-form">
+      <p class="modal-sub">Enter your account email — we'll send a 6-digit code.</p>
+      <input type="email" id="forgot-email" placeholder="Email address" required />
+      <button type="submit" id="forgot-request-btn">Send code</button>
+      <p class="error" id="forgot-request-error"></p>
+    </form>
+
+    <form id="forgot-reset-form" class="auth-form hidden">
+      <p class="modal-sub">Enter the code sent to your email and your new password.</p>
+      <input type="text" id="forgot-otp" placeholder="6-digit code" maxlength="6" inputmode="numeric" required />
+      <div class="password-field-wrap">
+        <input type="password" id="forgot-new-password" placeholder="New password" required />
+        <button type="button" class="show-pass-btn" data-target="forgot-new-password">👁️</button>
+      </div>
+      <button type="submit" id="forgot-reset-btn">Reset password</button>
+      <p class="error" id="forgot-reset-error"></p>
+      <button type="button" class="link-btn" id="forgot-resend-btn">Didn't get a code? Send again</button>
     </form>
   </div>
 </div>
@@ -53,10 +96,9 @@
       </div>
     </div>
     <div class="who">
-      <span id="me-name" class="hidden"></span>
       <button id="notif-btn" class="icon-btn hidden" title="Enable notifications">🔔</button>
       <button id="install-btn" class="text-btn hidden">Install</button>
-      <button id="logout-btn" class="text-btn">Log out</button>
+      <button id="profile-btn" class="hidden" title="Your profile"></button>
     </div>
   </header>
 
@@ -65,7 +107,6 @@
     <button class="page-btn" data-page="balances">📊 Balances</button>
     <button class="page-btn" data-page="feed">📸 Feed</button>
     <button class="page-btn" data-page="chat">💬 Chat</button>
-    <button class="page-btn" data-page="call">📞 Call</button>
   </nav>
 
   <!-- Expenses page -->
@@ -128,9 +169,34 @@
     </div>
   </section>
 
-  <!-- Chat page -->
+  <!-- Chat page (group chat + house call, WhatsApp-style) -->
   <section id="page-chat" class="page">
     <div class="chat-card">
+      <div class="chat-header">
+        <div class="chat-header-info">
+          <span class="chat-header-title">Group chat</span>
+          <span class="chat-header-sub" id="chat-header-sub">Tap 📞 to start a house call</span>
+        </div>
+        <button id="chat-call-btn" class="icon-btn dark-icon-btn" title="Start/join house call">📞</button>
+      </div>
+
+      <!-- Call bar: hidden until a call is active -->
+      <div id="call-bar" class="call-bar hidden">
+        <div class="call-bar-top">
+          <p class="call-bar-status" id="call-status">Not in the call.</p>
+          <div id="call-controls">
+            <button id="call-join-btn">📞 Join call</button>
+          </div>
+          <div id="call-active-controls" class="hidden">
+            <button id="call-mute-btn">🎤 Mute</button>
+            <button id="call-camera-btn">📷 Camera off</button>
+            <button id="call-leave-btn" class="danger-btn">✖ Leave</button>
+          </div>
+        </div>
+        <p class="error" id="call-error"></p>
+        <div id="call-grid" class="call-grid"></div>
+      </div>
+
       <div id="chat-messages" class="chat-messages"></div>
       <div id="chat-media-preview" class="chat-media-preview hidden"></div>
       <form id="chat-form" class="chat-form">
@@ -143,24 +209,67 @@
       </form>
     </div>
   </section>
+</div>
 
-  <!-- Call page -->
-  <section id="page-call" class="page">
-    <div class="card">
-      <h2>House call</h2>
-      <p class="exp-meta" id="call-status">Not in the call.</p>
-      <div id="call-controls">
-        <button id="call-join-btn">📞 Join call</button>
-      </div>
-      <div id="call-active-controls" class="hidden">
-        <button id="call-mute-btn">🎤 Mute</button>
-        <button id="call-camera-btn">📷 Camera off</button>
-        <button id="call-leave-btn" class="danger-btn">✖ Leave call</button>
-      </div>
-      <p class="error" id="call-error"></p>
+<!-- ===== PROFILE MODAL ===== -->
+<div id="profile-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Your profile</h2>
+      <button type="button" class="modal-close-btn" data-close-modal="profile-modal">✕</button>
     </div>
-    <div id="call-grid" class="call-grid"></div>
-  </section>
+
+    <div class="profile-modal-body">
+      <div class="profile-avatar-row">
+        <div id="profile-avatar-preview" class="profile-avatar-preview"></div>
+        <label class="attach-btn" title="Change profile picture">
+          🖼️ Change photo
+          <input type="file" id="profile-avatar-input" accept="image/*" class="hidden" />
+        </label>
+      </div>
+
+      <form id="profile-name-form" class="auth-form">
+        <label class="field-label">Display name</label>
+        <input type="text" id="profile-name-input" required />
+        <label class="field-label">Email</label>
+        <input type="email" id="profile-email-input" placeholder="you@example.com" />
+        <button type="submit">Save profile</button>
+        <p class="error" id="profile-save-error"></p>
+        <p class="success hidden" id="profile-save-success">Saved!</p>
+      </form>
+
+      <div class="modal-divider"></div>
+
+      <div class="dark-mode-row">
+        <span>🌙 Dark mode</span>
+        <label class="switch">
+          <input type="checkbox" id="dark-mode-toggle" />
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <form id="change-password-form" class="auth-form">
+        <label class="field-label">Change password</label>
+        <div class="password-field-wrap">
+          <input type="password" id="current-password-input" placeholder="Current password" required />
+          <button type="button" class="show-pass-btn" data-target="current-password-input">👁️</button>
+        </div>
+        <div class="password-field-wrap">
+          <input type="password" id="new-password-input" placeholder="New password" required />
+          <button type="button" class="show-pass-btn" data-target="new-password-input">👁️</button>
+        </div>
+        <button type="submit">Change password</button>
+        <p class="error" id="change-password-error"></p>
+        <p class="success hidden" id="change-password-success">Password changed!</p>
+      </form>
+
+      <div class="modal-divider"></div>
+
+      <button type="button" id="logout-btn" class="danger-btn full-width-btn">Log out</button>
+    </div>
+  </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
