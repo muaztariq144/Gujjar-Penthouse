@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gujjar Penthouse</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div id="auth-screen" class="screen">
+  <div class="auth-card">
+    <h1>🏠 Gujjar Penthouse</h1>
+    <p class="subtitle">Shared expenses &amp; chat for the flat</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="login">Log in</button>
+      <button class="tab-btn" data-tab="signup">First time? Sign up</button>
+    </div>
+
+    <form id="login-form" class="auth-form">
+      <input type="text" id="login-name" placeholder="Your name" required />
+      <input type="password" id="login-password" placeholder="Password" required />
+      <button type="submit">Log in</button>
+      <p class="error" id="login-error"></p>
+    </form>
+
+    <form id="signup-form" class="auth-form hidden">
+      <input type="text" id="signup-name" placeholder="Your name (e.g. Ali)" required />
+      <input type="password" id="signup-password" placeholder="Choose a password" required />
+      <button type="submit">Create account</button>
+      <p class="error" id="signup-error"></p>
+    </form>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="app-screen" class="screen hidden">
+  <header class="topbar">
+    <h1>🏠 Gujjar Penthouse</h1>
+    <div class="who">
+      <span id="me-name"></span>
+      <button id="logout-btn">Log out</button>
+    </div>
+  </header>
+
+  <nav class="tabbar">
+    <button class="page-btn active" data-page="expenses">💸 Expenses</button>
+    <button class="page-btn" data-page="balances">📊 Balances</button>
+    <button class="page-btn" data-page="chat">💬 Chat</button>
+  </nav>
+
+  <!-- Expenses page -->
+  <section id="page-expenses" class="page active">
+    <form id="expense-form" class="card">
+      <h2>Add an expense</h2>
+      <input type="text" id="exp-description" placeholder="What was it for? (e.g. Groceries)" required />
+      <input type="number" id="exp-amount" placeholder="Amount (Rs.)" min="0.01" step="0.01" required />
+      <div id="split-checkboxes" class="split-list"></div>
+      <button type="submit">Add expense</button>
+      <p class="error" id="expense-error"></p>
+    </form>
+
+    <div class="card">
+      <h2>Recent expenses</h2>
+      <ul id="expense-list" class="expense-list"></ul>
+    </div>
+  </section>
+
+  <!-- Balances page -->
+  <section id="page-balances" class="page">
+    <div class="card">
+      <h2>Who owes whom</h2>
+      <ul id="settlements-list" class="settlements-list"></ul>
+    </div>
+    <div class="card">
+      <h2>Net balance per person</h2>
+      <ul id="net-list" class="net-list"></ul>
+    </div>
+  </section>
+
+  <!-- Chat page -->
+  <section id="page-chat" class="page">
+    <div class="card chat-card">
+      <div id="chat-messages" class="chat-messages"></div>
+      <form id="chat-form" class="chat-form">
+        <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  </section>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
