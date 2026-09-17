@@ -104,6 +104,7 @@ $('#signup-form').addEventListener('submit', async (e) => {
       method: 'POST',
       body: JSON.stringify({
         name: $('#signup-name').value,
+        email: $('#signup-email').value,
         password: $('#signup-password').value,
       }),
     });
@@ -113,12 +114,100 @@ $('#signup-form').addEventListener('submit', async (e) => {
   }
 });
 
+// ---------- Show/hide password toggles (login, signup, profile, forgot-password) ----------
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.show-pass-btn');
+  if (!btn) return;
+  const input = document.getElementById(btn.dataset.target);
+  if (!input) return;
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? '👁️' : '🙈';
+});
+
 $('#logout-btn').addEventListener('click', () => {
   localStorage.removeItem('gp_token');
   token = null;
   me = null;
   if (socket) socket.disconnect();
   location.reload();
+});
+
+// ---------- Modal open/close helpers ----------
+function openModal(id) { $(`#${id}`)?.classList.remove('hidden'); }
+function closeModal(id) { $(`#${id}`)?.classList.add('hidden'); }
+
+document.addEventListener('click', (e) => {
+  const closeBtn = e.target.closest('[data-close-modal]');
+  if (closeBtn) { closeModal(closeBtn.dataset.closeModal); return; }
+  // Clicking the dimmed overlay itself (not the card) closes the modal too.
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.classList.add('hidden');
+  }
+});
+
+// ---------- Forgot password (email OTP) ----------
+let forgotPasswordEmail = '';
+
+$('#forgot-password-link').addEventListener('click', () => {
+  $('#forgot-request-form').classList.remove('hidden');
+  $('#forgot-reset-form').classList.add('hidden');
+  $('#forgot-request-error').textContent = '';
+  $('#forgot-reset-error').textContent = '';
+  $('#forgot-email').value = '';
+  openModal('forgot-password-modal');
+});
+
+async function requestPasswordResetCode(email) {
+  $('#forgot-request-error').textContent = '';
+  const btn = $('#forgot-request-btn');
+  btn.disabled = true;
+  try {
+    await api('/api/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+    forgotPasswordEmail = email;
+    $('#forgot-request-form').classList.add('hidden');
+    $('#forgot-reset-form').classList.remove('hidden');
+    $('#forgot-otp').value = '';
+    $('#forgot-new-password').value = '';
+  } catch (err) {
+    $('#forgot-request-error').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('#forgot-request-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await requestPasswordResetCode($('#forgot-email').value.trim());
+});
+
+$('#forgot-resend-btn').addEventListener('click', async () => {
+  if (!forgotPasswordEmail) return;
+  await requestPasswordResetCode(forgotPasswordEmail);
+});
+
+$('#forgot-reset-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#forgot-reset-error').textContent = '';
+  const btn = $('#forgot-reset-btn');
+  btn.disabled = true;
+  try {
+    await api('/api/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: forgotPasswordEmail,
+        otp: $('#forgot-otp').value.trim(),
+        newPassword: $('#forgot-new-password').value,
+      }),
+    });
+    closeModal('forgot-password-modal');
+    alert('Password reset! You can log in with your new password now.');
+    $('#login-name').focus();
+  } catch (err) {
+    $('#forgot-reset-error').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 function onLoggedIn(data) {
@@ -142,12 +231,7 @@ $$('.page-btn').forEach((btn) => {
 async function startApp() {
   $('#auth-screen').classList.add('hidden');
   $('#app-screen').classList.remove('hidden');
-  const meNameEl = $('#me-name');
-  if (meNameEl) {
-    meNameEl.innerHTML = avatarHtml(me.name, '', 30);
-    meNameEl.title = me.name;
-    meNameEl.classList.remove('hidden');
-  }
+  renderProfileButton();
 
   await loadUsers();
   await loadExpenses();
@@ -159,6 +243,123 @@ async function startApp() {
   maybeAutoJoinCall();
   setupChatMediaInput();
   setupPostMediaInput();
+  setupProfileModal();
+}
+
+function renderProfileButton() {
+  const btn = $('#profile-btn');
+  if (!btn || !me) return;
+  btn.innerHTML = avatarOrInitials(me.id, me.name, '', 32);
+  btn.title = me.name;
+  btn.classList.remove('hidden');
+}
+
+// ---------- Profile modal (view/edit profile, avatar, dark mode, password) ----------
+function applyDarkModePreference() {
+  const saved = localStorage.getItem('gp_theme');
+  const isDark = saved === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  const toggle = $('#dark-mode-toggle');
+  if (toggle) toggle.checked = isDark;
+}
+
+function setupProfileModal() {
+  const profileBtn = $('#profile-btn');
+  if (profileBtn && !profileBtn.dataset.wired) {
+    profileBtn.dataset.wired = '1';
+    profileBtn.addEventListener('click', () => {
+      $('#profile-name-input').value = me.name;
+      $('#profile-email-input').value = me.email || '';
+      $('#profile-avatar-preview').innerHTML = avatarOrInitials(me.id, me.name, '', 84);
+      $('#profile-save-error').textContent = '';
+      $('#profile-save-success').classList.add('hidden');
+      $('#change-password-error').textContent = '';
+      $('#change-password-success').classList.add('hidden');
+      $('#current-password-input').value = '';
+      $('#new-password-input').value = '';
+      applyDarkModePreference();
+      openModal('profile-modal');
+    });
+  }
+
+  const avatarInput = $('#profile-avatar-input');
+  if (avatarInput && !avatarInput.dataset.wired) {
+    avatarInput.dataset.wired = '1';
+    avatarInput.addEventListener('change', async () => {
+      const file = avatarInput.files[0];
+      avatarInput.value = '';
+      if (!file) return;
+      $('#profile-save-error').textContent = '';
+      try {
+        const uploaded = await uploadFile(file);
+        const { user } = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ avatarUrl: uploaded.url }) });
+        me.avatarUrl = user.avatarUrl;
+        $('#profile-avatar-preview').innerHTML = avatarOrInitials(me.id, me.name, '', 84);
+        renderProfileButton();
+      } catch (err) {
+        $('#profile-save-error').textContent = err.message;
+      }
+    });
+  }
+
+  const nameForm = $('#profile-name-form');
+  if (nameForm && !nameForm.dataset.wired) {
+    nameForm.dataset.wired = '1';
+    nameForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#profile-save-error').textContent = '';
+      $('#profile-save-success').classList.add('hidden');
+      try {
+        const { user } = await api('/api/me', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name: $('#profile-name-input').value.trim(),
+            email: $('#profile-email-input').value.trim(),
+          }),
+        });
+        me.name = user.name;
+        me.email = user.email;
+        renderProfileButton();
+        $('#profile-save-success').classList.remove('hidden');
+      } catch (err) {
+        $('#profile-save-error').textContent = err.message;
+      }
+    });
+  }
+
+  const darkToggle = $('#dark-mode-toggle');
+  if (darkToggle && !darkToggle.dataset.wired) {
+    darkToggle.dataset.wired = '1';
+    darkToggle.addEventListener('change', () => {
+      const isDark = darkToggle.checked;
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      try { localStorage.setItem('gp_theme', isDark ? 'dark' : 'light'); } catch {}
+    });
+  }
+
+  const passwordForm = $('#change-password-form');
+  if (passwordForm && !passwordForm.dataset.wired) {
+    passwordForm.dataset.wired = '1';
+    passwordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#change-password-error').textContent = '';
+      $('#change-password-success').classList.add('hidden');
+      try {
+        await api('/api/change-password', {
+          method: 'POST',
+          body: JSON.stringify({
+            currentPassword: $('#current-password-input').value,
+            newPassword: $('#new-password-input').value,
+          }),
+        });
+        $('#current-password-input').value = '';
+        $('#new-password-input').value = '';
+        $('#change-password-success').classList.remove('hidden');
+      } catch (err) {
+        $('#change-password-error').textContent = err.message;
+      }
+    });
+  }
 }
 
 // ---------- Incoming-call notification handling ----------
@@ -185,8 +386,13 @@ function maybeAutoJoinCall() {
 function goToCallPageAndJoin() {
   $$('.page-btn').forEach((b) => b.classList.remove('active'));
   $$('.page').forEach((p) => p.classList.remove('active'));
-  $('.page-btn[data-page="call"]').classList.add('active');
-  $('#page-call').classList.add('active');
+  $('.page-btn[data-page="chat"]').classList.add('active');
+  $('#page-chat').classList.add('active');
+  joinCallAndRevealBar();
+}
+
+function joinCallAndRevealBar() {
+  $('#call-bar')?.classList.remove('hidden');
   if (!inCall) joinCall();
 }
 
@@ -272,7 +478,7 @@ async function loadUsers() {
   box.innerHTML = users.map(u => `
     <label>
       <input type="checkbox" value="${u.id}" checked />
-      ${avatarHtml(u.name, 'mini-avatar')}
+      ${avatarOrInitials(u.id, u.name, 'mini-avatar', 20)}
       ${escapeHtml(u.name)}
     </label>
   `).join('');
@@ -301,6 +507,23 @@ function initialsForName(name) {
 function avatarHtml(name, extraClass = '', size) {
   const style = size ? `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px;` : '';
   return `<span class="avatar ${extraClass}" style="${style}background:${colorForName(name)};">${escapeHtml(initialsForName(name))}</span>`;
+}
+
+function userAvatarUrl(id) {
+  if (me && id === me.id && me.avatarUrl) return me.avatarUrl;
+  const u = users.find(u => u.id === id);
+  return u && u.avatarUrl ? u.avatarUrl : null;
+}
+
+// Renders a real profile photo when the user has one, falling back to the
+// colored-initials avatar otherwise.
+function avatarOrInitials(id, name, extraClass = '', size) {
+  const url = id ? userAvatarUrl(id) : null;
+  if (url) {
+    const style = size ? `width:${size}px;height:${size}px;` : '';
+    return `<img class="avatar ${extraClass}" style="${style}object-fit:cover;" src="${url}" alt="" />`;
+  }
+  return avatarHtml(name, extraClass, size);
 }
 
 // ---------- Expenses ----------
@@ -461,11 +684,11 @@ function renderBalances({ net, settlements }) {
   } else {
     settlementsList.innerHTML = settlements.map(s => `
       <li class="settlement-row">
-        ${avatarHtml(userName(s.from), '', 30)}
+        ${avatarOrInitials(s.from, userName(s.from), '', 30)}
         <strong>${escapeHtml(userName(s.from))}</strong>
         <span class="settlement-arrow">→</span>
         <strong>${escapeHtml(userName(s.to))}</strong>
-        ${avatarHtml(userName(s.to), '', 30)}
+        ${avatarOrInitials(s.to, userName(s.to), '', 30)}
         <span class="negative" style="margin-left:auto;">Rs. ${s.amount.toFixed(2)}</span>
       </li>
     `).join('');
@@ -478,7 +701,7 @@ function renderBalances({ net, settlements }) {
     const label = amount > 0.01 ? 'is owed' : amount < -0.01 ? 'owes' : 'is settled up';
     return `
       <li class="net-row">
-        ${avatarHtml(userName(uid), '', 34)}
+        ${avatarOrInitials(uid, userName(uid), '', 34)}
         <div class="net-row-name">
           ${escapeHtml(userName(uid))}${uid === me?.id ? ' (you)' : ''}
           <div class="net-row-sub">${label}</div>
@@ -509,6 +732,8 @@ function renderAttachment(attachment) {
 }
 
 function renderMessage(m) {
+  if (m.type === 'call-start') return renderCallSystemMessage(m);
+
   const mine = m.user_id === me.id;
   const name = m.user_name || userName(m.user_id);
   const time = new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -521,6 +746,20 @@ function renderMessage(m) {
           ${m.text ? `<span class="msg-text">${escapeHtml(m.text)}</span>` : ''}
           <span class="msg-time">${time}</span>
         </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCallSystemMessage(m) {
+  const mine = m.user_id === me.id;
+  const time = new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const label = mine ? 'You started a house call' : `${escapeHtml(m.user_name)} started a house call`;
+  return `
+    <div class="chat-call-system">
+      <div class="chat-call-system-pill">
+        📞 ${label} · ${time}
+        <button type="button" data-action="join-call-from-message">Join</button>
       </div>
     </div>
   `;
@@ -609,6 +848,11 @@ function connectSocket() {
   });
 
   socket.on('balances:update', renderBalances);
+
+  socket.on('user:updated', (u) => {
+    const idx = users.findIndex(x => x.id === u.id);
+    if (idx !== -1) users[idx] = u; else users.push(u);
+  });
 
   socket.on('expense:new', async () => {
     await loadExpenses();
@@ -826,7 +1070,7 @@ function renderPostCard(post) {
   return `
     <div class="post-card" data-post-id="${post.id}">
       <div class="post-card-header">
-        ${avatarHtml(post.user_name, '', 38)}
+        ${avatarOrInitials(post.user_id, post.user_name, '', 38)}
         <div class="post-card-header-info">
           <div class="post-card-header-name">${escapeHtml(post.user_name)}${isMine ? ' (you)' : ''}</div>
           <div class="post-card-header-time">${timeAgo(post.created_at)}</div>
@@ -1021,11 +1265,18 @@ function leaveCallClient() {
   $('#call-status').textContent = 'Not in the call.';
   $('#call-controls').classList.remove('hidden');
   $('#call-active-controls').classList.add('hidden');
+  $('#call-bar')?.classList.add('hidden');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   $('#call-join-btn').addEventListener('click', joinCall);
   $('#call-leave-btn').addEventListener('click', leaveCallClient);
+  $('#chat-call-btn')?.addEventListener('click', joinCallAndRevealBar);
+
+  // "Join" button inside a "📞 X started a house call" chat bubble.
+  $('#chat-messages')?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="join-call-from-message"]')) joinCallAndRevealBar();
+  });
 
   $('#call-mute-btn').addEventListener('click', () => {
     if (!localStream) return;
