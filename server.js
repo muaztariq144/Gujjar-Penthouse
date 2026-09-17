@@ -2,6 +2,7 @@
 // Beginner-friendly, single-file backend. No native/compiled dependencies
 // (data is stored in a plain JSON file), so `npm install` works everywhere.
 
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -9,6 +10,7 @@ const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
 const webpush = require('web-push');
+const multer = require('multer');
 const { createStore } = require('./lib/jsondb');
 
 // ---------- Setup ----------
@@ -16,6 +18,24 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'app.json');
 const { data: db, save } = createStore(DB_PATH);
+
+// ---------- Uploaded media (chat photos/videos/files, feed post photos) ----------
+// Stored on disk next to the database (same persistence caveats as the JSON
+// db itself: survives restarts, but a fresh Railway deploy without a Volume
+// wipes it). Served back out at /uploads/<filename>.
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 10);
+      cb(null, `${uuid()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+});
 
 // ---------- Push notifications ----------
 // These VAPID keys identify this server to push services (Google, Apple, etc).
@@ -59,6 +79,7 @@ async function sendPushToUsers({ excludeUserId, title, body, tag, type, data }) 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 const server = http.createServer(app);
 const io = new Server(server);
@@ -178,6 +199,28 @@ app.get('/api/users', authMiddleware, (req, res) => {
   res.json({ users: db.users.map(publicUser) });
 });
 
+// ---------- Media uploads (used by chat attachments and feed posts) ----------
+app.post('/api/upload', authMiddleware, (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE' ? 'File is too big (max 25MB).' : 'Could not upload that file.';
+      return res.status(400).json({ error: message });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No file received.' });
+
+    const mime = req.file.mimetype || '';
+    const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : 'file';
+
+    res.json({
+      url: `/uploads/${req.file.filename}`,
+      name: req.file.originalname,
+      mime,
+      kind,
+      size: req.file.size,
+    });
+  });
+});
+
 // ---------- Push notifications ----------
 app.get('/api/push/public-key', (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC_KEY });
@@ -262,6 +305,133 @@ app.get('/api/messages', authMiddleware, (req, res) => {
   res.json({ messages });
 });
 
+// ---------- Feed (Instagram-style posts, likes, comments) ----------
+function publicPost(post, viewerId) {
+  return {
+    id: post.id,
+    user_id: post.user_id,
+    user_name: post.user_name,
+    caption: post.caption,
+    media: post.media || null,
+    created_at: post.created_at,
+    likes: post.likes,
+    likeCount: post.likes.length,
+    likedByMe: post.likes.includes(viewerId),
+    comments: post.comments,
+  };
+}
+
+app.get('/api/posts', authMiddleware, (req, res) => {
+  const posts = [...db.posts]
+    .sort((a, b) => b.created_at - a.created_at)
+    .map(p => publicPost(p, req.user.id));
+  res.json({ posts });
+});
+
+app.post('/api/posts', authMiddleware, (req, res) => {
+  const { caption, media } = req.body || {};
+  const trimmedCaption = typeof caption === 'string' ? caption.trim() : '';
+  const cleanMedia = media && typeof media.url === 'string'
+    ? {
+        url: media.url,
+        kind: ['image', 'video'].includes(media.kind) ? media.kind : 'image',
+      }
+    : null;
+
+  if (!trimmedCaption && !cleanMedia) {
+    return res.status(400).json({ error: 'Add a caption or a photo/video to post.' });
+  }
+
+  const post = {
+    id: uuid(),
+    user_id: req.user.id,
+    user_name: req.user.name,
+    caption: trimmedCaption,
+    media: cleanMedia,
+    likes: [],
+    comments: [],
+    created_at: Date.now(),
+  };
+  db.posts.push(post);
+  save();
+
+  const publicVersion = publicPost(post, req.user.id);
+  io.emit('post:new', publicVersion);
+  res.json({ ok: true, post: publicVersion });
+
+  sendPushToUsers({
+    excludeUserId: req.user.id,
+    title: `${req.user.name} posted to the feed`,
+    body: trimmedCaption || (cleanMedia?.kind === 'video' ? '🎥 New video' : '📷 New photo'),
+    tag: 'gp-feed',
+  }).catch(() => {});
+});
+
+app.delete('/api/posts/:id', authMiddleware, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post not found.' });
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'You can only delete your own posts.' });
+
+  db.posts = db.posts.filter(p => p.id !== req.params.id);
+  save();
+  io.emit('post:deleted', { id: req.params.id });
+  res.json({ ok: true });
+});
+
+app.post('/api/posts/:id/like', authMiddleware, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+  const idx = post.likes.indexOf(req.user.id);
+  const nowLiked = idx === -1;
+  if (nowLiked) post.likes.push(req.user.id);
+  else post.likes.splice(idx, 1);
+  save();
+
+  io.emit('post:like-update', { id: post.id, likes: post.likes });
+  res.json({ ok: true, likes: post.likes });
+
+  if (nowLiked && post.user_id !== req.user.id) {
+    sendPushToUsers({
+      excludeUserId: req.user.id,
+      title: `${req.user.name} liked your post`,
+      body: post.caption || '❤️',
+      tag: 'gp-feed-like',
+    }).catch(() => {});
+  }
+});
+
+app.post('/api/posts/:id/comments', authMiddleware, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+  const { text } = req.body || {};
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed) return res.status(400).json({ error: 'Comment cannot be empty.' });
+
+  const comment = {
+    id: uuid(),
+    user_id: req.user.id,
+    user_name: req.user.name,
+    text: trimmed.slice(0, 500),
+    created_at: Date.now(),
+  };
+  post.comments.push(comment);
+  save();
+
+  io.emit('post:comment-new', { postId: post.id, comment });
+  res.json({ ok: true, comment });
+
+  if (post.user_id !== req.user.id) {
+    sendPushToUsers({
+      excludeUserId: req.user.id,
+      title: `${req.user.name} commented on your post`,
+      body: comment.text,
+      tag: 'gp-feed-comment',
+    }).catch(() => {});
+  }
+});
+
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   const user = getUserByToken(token);
@@ -282,13 +452,29 @@ function leaveCall(socket) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('chat:send', (text) => {
-    if (typeof text !== 'string' || !text.trim()) return;
+  // `payload` is either a plain string (older/text-only clients) or
+  // { text, attachment: { url, name, mime, kind } } for messages with media.
+  socket.on('chat:send', (payload) => {
+    const isObject = payload && typeof payload === 'object';
+    const text = (isObject ? payload.text : payload) || '';
+    const attachment = isObject && payload.attachment && typeof payload.attachment.url === 'string'
+      ? {
+          url: payload.attachment.url,
+          name: typeof payload.attachment.name === 'string' ? payload.attachment.name.slice(0, 200) : '',
+          mime: typeof payload.attachment.mime === 'string' ? payload.attachment.mime : '',
+          kind: ['image', 'video', 'file'].includes(payload.attachment.kind) ? payload.attachment.kind : 'file',
+        }
+      : null;
+
+    const trimmedText = typeof text === 'string' ? text.trim() : '';
+    if (!trimmedText && !attachment) return; // nothing to send
+
     const message = {
       id: uuid(),
       user_id: socket.user.id,
       user_name: socket.user.name,
-      text: text.trim(),
+      text: trimmedText,
+      attachment,
       created_at: Date.now(),
     };
     db.messages.push(message);
@@ -298,7 +484,7 @@ io.on('connection', (socket) => {
     sendPushToUsers({
       excludeUserId: socket.user.id,
       title: socket.user.name,
-      body: message.text,
+      body: trimmedText || (attachment?.kind === 'image' ? '📷 Photo' : attachment?.kind === 'video' ? '🎥 Video' : '📎 Attachment'),
       tag: 'gp-chat',
     }).catch(() => {});
   });
