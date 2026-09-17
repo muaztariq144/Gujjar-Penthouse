@@ -260,6 +260,48 @@ button:hover { background: var(--primary-dark); }
 .chat-form input { flex: 1; }
 .chat-form button { flex-shrink: 0; }
 
+/* ---------- Call ---------- */
+#call-controls, #call-active-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.danger-btn { background: var(--danger); }
+.danger-btn:hover { background: #8f371f; }
+
+.call-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.call-tile {
+  position: relative;
+  background: #1c2b23;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+}
+
+.call-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.call-tile .call-tile-name {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  color: white;
+  font-size: 12px;
+  background: rgba(0,0,0,0.45);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
 @media (max-width: 480px) {
   .auth-card { padding: 22px; }
 }
