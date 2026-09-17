@@ -63,6 +63,7 @@
   <nav class="tabbar">
     <button class="page-btn active" data-page="expenses">💸 Expenses</button>
     <button class="page-btn" data-page="balances">📊 Balances</button>
+    <button class="page-btn" data-page="feed">📸 Feed</button>
     <button class="page-btn" data-page="chat">💬 Chat</button>
     <button class="page-btn" data-page="call">📞 Call</button>
   </nav>
@@ -104,11 +105,39 @@
     </div>
   </section>
 
+  <!-- Feed page -->
+  <section id="page-feed" class="page">
+    <div class="feed-page-inner">
+      <div class="card new-post-card">
+        <h2>📸 Share something</h2>
+        <form id="post-form">
+          <textarea id="post-caption" rows="2" placeholder="What's on your mind?"></textarea>
+          <div id="post-media-preview" class="post-media-preview hidden"></div>
+          <div class="new-post-actions">
+            <label class="attach-btn" title="Add a photo or video">
+              🖼️ Photo/Video
+              <input type="file" id="post-media-input" accept="image/*,video/*" class="hidden" />
+            </label>
+            <button type="submit" id="post-submit-btn">Post</button>
+          </div>
+          <p class="error" id="post-error"></p>
+        </form>
+      </div>
+
+      <div id="feed-list" class="feed-list"></div>
+    </div>
+  </section>
+
   <!-- Chat page -->
   <section id="page-chat" class="page">
     <div class="chat-card">
       <div id="chat-messages" class="chat-messages"></div>
+      <div id="chat-media-preview" class="chat-media-preview hidden"></div>
       <form id="chat-form" class="chat-form">
+        <label class="attach-icon-btn" title="Attach a photo, video, or file">
+          📎
+          <input type="file" id="chat-media-input" class="hidden" />
+        </label>
         <input type="text" id="chat-input" placeholder="Type a message" autocomplete="off" />
         <button type="submit" class="send-btn" title="Send">➤</button>
       </form>
