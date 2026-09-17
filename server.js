@@ -268,6 +268,17 @@ io.use((socket, next) => {
   next();
 });
 
+// ---------- Voice/video call room (WebRTC signaling only — no media passes through this server) ----------
+// Map of socket.id -> { userId, userName }, everyone currently in the shared call.
+const callParticipants = new Map();
+
+function leaveCall(socket) {
+  if (!callParticipants.has(socket.id)) return;
+  callParticipants.delete(socket.id);
+  socket.to('call-room').emit('call:peer-left', { socketId: socket.id });
+  socket.leave('call-room');
+}
+
 io.on('connection', (socket) => {
   socket.on('chat:send', (text) => {
     if (typeof text !== 'string' || !text.trim()) return;
@@ -289,6 +300,56 @@ io.on('connection', (socket) => {
       tag: 'gp-chat',
     }).catch(() => {});
   });
+
+  // A device asks to join the shared call room. We reply (via ack callback)
+  // with the list of people already in it, so the joiner can initiate a
+  // WebRTC connection to each of them.
+  socket.on('call:join', (_data, callback) => {
+    const wasEmpty = callParticipants.size === 0;
+    const existingPeers = [...callParticipants.entries()].map(([socketId, info]) => ({
+      socketId,
+      userName: info.userName,
+    }));
+
+    callParticipants.set(socket.id, { userId: socket.user.id, userName: socket.user.name });
+    socket.join('call-room');
+
+    if (typeof callback === 'function') callback({ peers: existingPeers });
+
+    socket.to('call-room').emit('call:peer-joined', {
+      socketId: socket.id,
+      userName: socket.user.name,
+    });
+
+    if (wasEmpty) {
+      sendPushToUsers({
+        excludeUserId: socket.user.id,
+        title: `${socket.user.name} started a call`,
+        body: 'Tap to join the call in Gujjar Penthouse.',
+        tag: 'gp-call',
+      }).catch(() => {});
+    }
+  });
+
+  socket.on('call:leave', () => leaveCall(socket));
+
+  // Pure relay: forward WebRTC offers/answers/ICE candidates to the intended peer only.
+  socket.on('call:offer', ({ to, offer }) => {
+    if (!to || !offer) return;
+    io.to(to).emit('call:offer', { from: socket.id, userName: socket.user.name, offer });
+  });
+
+  socket.on('call:answer', ({ to, answer }) => {
+    if (!to || !answer) return;
+    io.to(to).emit('call:answer', { from: socket.id, answer });
+  });
+
+  socket.on('call:ice-candidate', ({ to, candidate }) => {
+    if (!to || !candidate) return;
+    io.to(to).emit('call:ice-candidate', { from: socket.id, candidate });
+  });
+
+  socket.on('disconnect', () => leaveCall(socket));
 });
 
 server.listen(PORT, () => {
