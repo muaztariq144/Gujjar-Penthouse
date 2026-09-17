@@ -128,7 +128,12 @@ $$('.page-btn').forEach((btn) => {
 async function startApp() {
   $('#auth-screen').classList.add('hidden');
   $('#app-screen').classList.remove('hidden');
-  $('#me-name').textContent = me.name;
+  const meNameEl = $('#me-name');
+  if (meNameEl) {
+    meNameEl.innerHTML = avatarHtml(me.name, '', 30);
+    meNameEl.title = me.name;
+    meNameEl.classList.remove('hidden');
+  }
 
   await loadUsers();
   await loadExpenses();
@@ -244,10 +249,14 @@ async function tryAutoLogin() {
 async function loadUsers() {
   const data = await api('/api/users');
   users = data.users;
+  const sub = $('#header-sub');
+  if (sub) sub.textContent = `${users.length} roommate${users.length === 1 ? '' : 's'}`;
   const box = $('#split-checkboxes');
   box.innerHTML = users.map(u => `
     <label>
-      <input type="checkbox" value="${u.id}" checked /> ${escapeHtml(u.name)}
+      <input type="checkbox" value="${u.id}" checked />
+      ${avatarHtml(u.name, 'mini-avatar')}
+      ${escapeHtml(u.name)}
     </label>
   `).join('');
 }
@@ -255,6 +264,26 @@ async function loadUsers() {
 function userName(id) {
   const u = users.find(u => u.id === id);
   return u ? u.name : 'Someone';
+}
+
+// ---------- Avatars ----------
+const AVATAR_COLORS = ['#ee6c4d', '#f4a259', '#5b8c5a', '#457b9d', '#7b6cbd', '#e07a9e', '#2a9d8f', '#e9924a'];
+
+function colorForName(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+function initialsForName(name) {
+  const parts = name.trim().split(/\s+/);
+  const initials = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
+  return initials.toUpperCase();
+}
+
+function avatarHtml(name, extraClass = '', size) {
+  const style = size ? `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px;` : '';
+  return `<span class="avatar ${extraClass}" style="${style}background:${colorForName(name)};">${escapeHtml(initialsForName(name))}</span>`;
 }
 
 // ---------- Expenses ----------
@@ -288,24 +317,93 @@ async function loadExpenses() {
   renderExpenses(data.expenses);
 }
 
+const EXPENSE_EMOJI_RULES = [
+  [/groc|market|vegetabl|fruit/i, '🛒'],
+  [/electric|wapda|utility|utilit|gas bill|water bill/i, '💡'],
+  [/internet|wifi|broadband/i, '📶'],
+  [/rent/i, '🏠'],
+  [/food|dinner|lunch|breakfast|restaurant|order|takeaway|zomato|foodpanda/i, '🍔'],
+  [/cleaning|maid|detergent/i, '🧹'],
+  [/gas cylinder|lpg/i, '🔥'],
+  [/fuel|petrol|diesel/i, '⛽'],
+  [/medic|pharmacy|doctor/i, '💊'],
+];
+
+function emojiForExpense(description) {
+  for (const [pattern, emoji] of EXPENSE_EMOJI_RULES) {
+    if (pattern.test(description)) return emoji;
+  }
+  return '💵';
+}
+
+function dayHeading(timestamp) {
+  const d = new Date(timestamp);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(d, today)) return 'Today';
+  if (sameDay(d, yesterday)) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+}
+
 function renderExpenses(expenses) {
   const list = $('#expense-list');
   if (expenses.length === 0) {
-    list.innerHTML = '<li class="exp-meta">No expenses yet — add the first one above.</li>';
+    list.innerHTML = '<li class="empty-state">No expenses yet — add the first one above. 🎉</li>';
     return;
   }
-  list.innerHTML = expenses.map(e => `
-    <li>
-      <div>
-        <div>${escapeHtml(e.description)}</div>
-        <div class="exp-meta">Paid by ${escapeHtml(userName(e.paid_by))} · split ${e.split_among.length} ways · ${new Date(e.created_at).toLocaleString()}</div>
-      </div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span class="exp-amount">Rs. ${e.amount.toFixed(2)}</span>
-        <button class="del-btn" data-id="${e.id}">Delete</button>
-      </div>
-    </li>
-  `).join('');
+
+  let lastHeading = null;
+  const rows = [];
+
+  for (const e of expenses) {
+    const heading = dayHeading(e.created_at);
+    if (heading !== lastHeading) {
+      rows.push(`<li class="expense-day-heading">${escapeHtml(heading)}</li>`);
+      lastHeading = heading;
+    }
+
+    const iAmPayer = e.paid_by === me.id;
+    const iAmInSplit = e.split_among.includes(me.id);
+    const myShare = iAmInSplit ? e.amount / e.split_among.length : 0;
+
+    let shareLine = '';
+    let shareClass = 'neutral';
+    if (iAmPayer) {
+      const lentToOthers = e.amount - myShare;
+      if (lentToOthers > 0.01) {
+        shareLine = `you lent Rs. ${lentToOthers.toFixed(2)}`;
+        shareClass = 'positive';
+      } else {
+        shareLine = 'just for you';
+      }
+    } else if (iAmInSplit) {
+      shareLine = `you owe Rs. ${myShare.toFixed(2)}`;
+      shareClass = 'negative';
+    } else {
+      shareLine = 'not involved';
+    }
+
+    const time = new Date(e.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    rows.push(`
+      <li class="expense-row">
+        <div class="expense-icon">${emojiForExpense(e.description)}</div>
+        <div class="expense-row-main">
+          <div class="expense-row-title">${escapeHtml(e.description)}</div>
+          <div class="expense-row-meta">${iAmPayer ? 'You' : escapeHtml(userName(e.paid_by))} paid · split ${e.split_among.length} way${e.split_among.length === 1 ? '' : 's'} · ${time}</div>
+        </div>
+        <div class="expense-row-amounts">
+          <div class="expense-row-total">Rs. ${e.amount.toFixed(2)}</div>
+          <div class="expense-row-share ${shareClass}">${shareLine}</div>
+        </div>
+        <button class="del-btn" data-id="${e.id}">✕</button>
+      </li>
+    `);
+  }
+
+  list.innerHTML = rows.join('');
 
   list.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -322,21 +420,55 @@ async function loadBalances() {
 }
 
 function renderBalances({ net, settlements }) {
+  // ---- Summary banner: how the current user personally stands ----
+  const myNet = net[me?.id] ?? 0;
+  const bannerLabel = $('#balance-banner-label');
+  const bannerAmount = $('#balance-banner-amount');
+  if (bannerLabel && bannerAmount) {
+    if (Math.abs(myNet) < 0.01) {
+      bannerLabel.textContent = "You're all settled up";
+      bannerAmount.textContent = 'Rs. 0.00';
+    } else if (myNet > 0) {
+      bannerLabel.textContent = 'You are owed overall';
+      bannerAmount.textContent = `Rs. ${myNet.toFixed(2)}`;
+    } else {
+      bannerLabel.textContent = 'You owe overall';
+      bannerAmount.textContent = `Rs. ${Math.abs(myNet).toFixed(2)}`;
+    }
+  }
+
+  // ---- Who owes whom ----
   const settlementsList = $('#settlements-list');
   if (settlements.length === 0) {
-    settlementsList.innerHTML = '<li>Everyone is settled up! 🎉</li>';
+    settlementsList.innerHTML = '<li class="empty-state">Everyone is settled up! 🎉</li>';
   } else {
     settlementsList.innerHTML = settlements.map(s => `
-      <li><strong>${escapeHtml(userName(s.from))}</strong> owes <strong>${escapeHtml(userName(s.to))}</strong>
-      <span class="negative">Rs. ${s.amount.toFixed(2)}</span></li>
+      <li class="settlement-row">
+        ${avatarHtml(userName(s.from), '', 30)}
+        <strong>${escapeHtml(userName(s.from))}</strong>
+        <span class="settlement-arrow">→</span>
+        <strong>${escapeHtml(userName(s.to))}</strong>
+        ${avatarHtml(userName(s.to), '', 30)}
+        <span class="negative" style="margin-left:auto;">Rs. ${s.amount.toFixed(2)}</span>
+      </li>
     `).join('');
   }
 
+  // ---- Net balance per person ----
   const netList = $('#net-list');
   netList.innerHTML = Object.entries(net).map(([uid, amount]) => {
     const cls = amount > 0.01 ? 'positive' : amount < -0.01 ? 'negative' : '';
-    const label = amount > 0.01 ? 'is owed' : amount < -0.01 ? 'owes' : 'is settled';
-    return `<li>${escapeHtml(userName(uid))} ${label} <span class="${cls}">Rs. ${Math.abs(amount).toFixed(2)}</span></li>`;
+    const label = amount > 0.01 ? 'is owed' : amount < -0.01 ? 'owes' : 'is settled up';
+    return `
+      <li class="net-row">
+        ${avatarHtml(userName(uid), '', 34)}
+        <div class="net-row-name">
+          ${escapeHtml(userName(uid))}${uid === me?.id ? ' (you)' : ''}
+          <div class="net-row-sub">${label}</div>
+        </div>
+        <span class="${cls}">Rs. ${Math.abs(amount).toFixed(2)}</span>
+      </li>
+    `;
   }).join('');
 }
 
@@ -349,12 +481,18 @@ async function loadMessages() {
 }
 
 function renderMessage(m) {
-  const mine = m.user_id === me.id ? 'mine' : '';
+  const mine = m.user_id === me.id;
   const name = m.user_name || userName(m.user_id);
+  const time = new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return `
-    <div class="chat-msg ${mine}">
-      <div class="sender">${escapeHtml(name)} · ${new Date(m.created_at).toLocaleTimeString()}</div>
-      <div class="bubble">${escapeHtml(m.text)}</div>
+    <div class="chat-msg-row ${mine ? 'mine' : ''}">
+      <div class="chat-msg">
+        <div class="bubble">
+          ${mine ? '' : `<div class="sender" style="color:${colorForName(name)};">${escapeHtml(name)}</div>`}
+          <span class="msg-text">${escapeHtml(m.text)}</span>
+          <span class="msg-time">${time}</span>
+        </div>
+      </div>
     </div>
   `;
 }
