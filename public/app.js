@@ -135,6 +135,67 @@ async function startApp() {
   await loadBalances();
   await loadMessages();
   connectSocket();
+  setupNotifications();
+}
+
+// ---------- Push notifications ----------
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+async function setupNotifications() {
+  const btn = $('#notif-btn');
+  if (!btn) return;
+
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (!supported) return; // silently do nothing on unsupported browsers (e.g. desktop Safari)
+
+  if (Notification.permission === 'granted') {
+    btn.classList.add('hidden');
+    subscribeToPush().catch(() => {}); // make sure this device is registered
+    return;
+  }
+
+  if (Notification.permission === 'denied') {
+    btn.classList.add('hidden');
+    return;
+  }
+
+  btn.classList.remove('hidden');
+  btn.onclick = async () => {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      btn.classList.add('hidden');
+      try {
+        await subscribeToPush();
+      } catch {
+        alert('Could not enable notifications on this device. You can try again later.');
+      }
+    } else {
+      btn.classList.add('hidden');
+    }
+  };
+}
+
+async function subscribeToPush() {
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+
+  if (!subscription) {
+    const { publicKey } = await api('/api/push/public-key');
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  }
+
+  await api('/api/push/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ subscription }),
+  });
 }
 
 async function tryAutoLogin() {
