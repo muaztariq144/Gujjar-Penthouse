@@ -11,11 +11,15 @@ const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
 const webpush = require('web-push');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const { createStore } = require('./lib/jsondb');
 
 // ---------- Setup ----------
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+// If a Railway Volume is attached, Railway automatically sets
+// RAILWAY_VOLUME_MOUNT_PATH — use it so the database and uploaded media
+// survive redeploys, not just restarts. DATA_DIR still wins if set by hand.
+const DATA_DIR = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'app.json');
 const { data: db, save } = createStore(DB_PATH);
 
@@ -47,6 +51,46 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
   || 'AYSFpjOE8BR6KSEOfQ3dL36CPE0ohtDpnPjuQdwCemA';
 
 webpush.setVapidDetails('mailto:gujjarpenthouse@gmail.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+// ---------- Email (used for "forgot password" one-time codes) ----------
+// Configure by setting EMAIL_USER + EMAIL_PASS (a Gmail address + Gmail "App
+// Password") as environment variables on Railway. If they're not set, OTP
+// codes are just printed to the server log instead of emailed — handy for
+// local testing, but roommates won't get a real email until this is set up.
+let mailTransporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  mailTransporter = nodemailer.createTransport({
+    service: process.env.EMAIL_SERVICE || 'gmail',
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  });
+}
+
+async function sendOtpEmail(toEmail, otp) {
+  const subject = 'Your Gujjar Penthouse password reset code';
+  const text = `Your password reset code is ${otp}. It expires in 15 minutes. If you didn't ask for this, you can ignore this email.`;
+  const html = `
+    <div style="font-family:sans-serif;max-width:420px;margin:0 auto;">
+      <h2 style="color:#005e54;">Gujjar Penthouse</h2>
+      <p>Your password reset code is:</p>
+      <p style="font-size:32px;font-weight:700;letter-spacing:6px;color:#005e54;">${otp}</p>
+      <p style="color:#667781;font-size:13px;">This code expires in 15 minutes. If you didn't ask for this, you can ignore this email.</p>
+    </div>
+  `;
+
+  if (!mailTransporter) {
+    // Not configured — log it so whoever is running the server locally can still test the flow.
+    console.log(`[dev only] Password reset code for ${toEmail}: ${otp}`);
+    return;
+  }
+
+  await mailTransporter.sendMail({
+    from: `"Gujjar Penthouse" <${process.env.EMAIL_USER}>`,
+    to: toEmail,
+    subject,
+    text,
+    html,
+  });
+}
 
 // Sends a notification to every subscribed device belonging to the given users
 // (or everyone, if excludeUserId is the only filter). Cleans up subscriptions
@@ -86,7 +130,12 @@ const io = new Server(server);
 
 // ---------- Helpers ----------
 function publicUser(u) {
-  return { id: u.id, name: u.name };
+  return { id: u.id, name: u.name, avatarUrl: u.avatar_url || null };
+}
+
+// A fuller version of the user's own profile — only ever sent back to that user themselves.
+function privateProfile(u) {
+  return { id: u.id, name: u.name, email: u.email || null, avatarUrl: u.avatar_url || null };
 }
 
 function findUserById(id) {
@@ -159,23 +208,32 @@ function computeBalances() {
 }
 
 // ---------- Auth routes ----------
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 app.post('/api/signup', (req, res) => {
-  const { name, password } = req.body || {};
+  const { name, email, password } = req.body || {};
   if (!name || !password || password.length < 4) {
     return res.status(400).json({ error: 'Name and a password (4+ chars) are required.' });
   }
   const trimmedName = name.trim();
-  const existing = db.users.find(u => u.name === trimmedName);
-  if (existing) return res.status(400).json({ error: 'That name is already taken. Try logging in instead.' });
+  const trimmedEmail = (email || '').trim().toLowerCase();
+  if (!trimmedEmail || !EMAIL_RE.test(trimmedEmail)) {
+    return res.status(400).json({ error: 'A valid email address is required (used for password resets).' });
+  }
+
+  const existingName = db.users.find(u => u.name === trimmedName);
+  if (existingName) return res.status(400).json({ error: 'That name is already taken. Try logging in instead.' });
+  const existingEmail = db.users.find(u => u.email === trimmedEmail);
+  if (existingEmail) return res.status(400).json({ error: 'That email is already registered. Try logging in instead.' });
 
   const id = uuid();
   const hash = bcrypt.hashSync(password, 10);
-  db.users.push({ id, name: trimmedName, password_hash: hash, created_at: Date.now() });
+  db.users.push({ id, name: trimmedName, email: trimmedEmail, avatar_url: null, password_hash: hash, created_at: Date.now() });
 
   const token = uuid();
   db.sessions.push({ token, user_id: id, created_at: Date.now() });
   save();
-  res.json({ token, user: { id, name: trimmedName } });
+  res.json({ token, user: privateProfile({ id, name: trimmedName, email: trimmedEmail, avatar_url: null }) });
 });
 
 app.post('/api/login', (req, res) => {
@@ -187,11 +245,111 @@ app.post('/api/login', (req, res) => {
   const token = uuid();
   db.sessions.push({ token, user_id: user.id, created_at: Date.now() });
   save();
-  res.json({ token, user: publicUser(user) });
+  res.json({ token, user: privateProfile(user) });
 });
 
 app.get('/api/me', authMiddleware, (req, res) => {
-  res.json({ user: publicUser(req.user) });
+  res.json({ user: privateProfile(req.user) });
+});
+
+app.patch('/api/me', authMiddleware, (req, res) => {
+  const { name, email, avatarUrl } = req.body || {};
+
+  if (typeof name === 'string' && name.trim()) {
+    const trimmedName = name.trim();
+    const clash = db.users.find(u => u.id !== req.user.id && u.name === trimmedName);
+    if (clash) return res.status(400).json({ error: 'That name is already taken.' });
+    req.user.name = trimmedName;
+  }
+
+  if (typeof email === 'string' && email.trim()) {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(trimmedEmail)) return res.status(400).json({ error: 'That email address looks invalid.' });
+    const clash = db.users.find(u => u.id !== req.user.id && u.email === trimmedEmail);
+    if (clash) return res.status(400).json({ error: 'That email is already registered to another account.' });
+    req.user.email = trimmedEmail;
+  }
+
+  if (typeof avatarUrl === 'string') {
+    req.user.avatar_url = avatarUrl || null;
+  }
+
+  save();
+  io.emit('user:updated', publicUser(req.user));
+  res.json({ ok: true, user: privateProfile(req.user) });
+});
+
+app.post('/api/change-password', authMiddleware, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!bcrypt.compareSync(currentPassword || '', req.user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+  if (!newPassword || newPassword.length < 4) {
+    return res.status(400).json({ error: 'New password must be at least 4 characters.' });
+  }
+  req.user.password_hash = bcrypt.hashSync(newPassword, 10);
+  save();
+  res.json({ ok: true });
+});
+
+// ---------- Forgot password (email OTP) ----------
+app.post('/api/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  const trimmedEmail = (email || '').trim().toLowerCase();
+  // Always respond the same way whether or not the email exists, so this
+  // can't be used to check who has an account.
+  const genericResponse = { ok: true, message: 'If that email is registered, a code has been sent to it.' };
+  if (!trimmedEmail) return res.json(genericResponse);
+
+  const user = db.users.find(u => u.email === trimmedEmail);
+  if (!user) return res.json(genericResponse);
+
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  db.passwordResets = db.passwordResets.filter(r => r.email !== trimmedEmail); // drop older codes
+  db.passwordResets.push({
+    email: trimmedEmail,
+    otp,
+    expires_at: Date.now() + 15 * 60 * 1000,
+    used: false,
+    created_at: Date.now(),
+  });
+  save();
+
+  try {
+    await sendOtpEmail(trimmedEmail, otp);
+  } catch (err) {
+    console.error('Failed to send OTP email:', err.message);
+    return res.status(500).json({ error: 'Could not send the reset email right now. Please try again shortly.' });
+  }
+
+  res.json(genericResponse);
+});
+
+app.post('/api/reset-password', (req, res) => {
+  const { email, otp, newPassword } = req.body || {};
+  const trimmedEmail = (email || '').trim().toLowerCase();
+  const trimmedOtp = (otp || '').trim();
+
+  if (!newPassword || newPassword.length < 4) {
+    return res.status(400).json({ error: 'New password must be at least 4 characters.' });
+  }
+
+  const reset = db.passwordResets.find(r => r.email === trimmedEmail && r.otp === trimmedOtp && !r.used);
+  if (!reset || reset.expires_at < Date.now()) {
+    return res.status(400).json({ error: 'That code is invalid or has expired. Request a new one.' });
+  }
+
+  const user = db.users.find(u => u.email === trimmedEmail);
+  if (!user) return res.status(400).json({ error: 'That code is invalid or has expired. Request a new one.' });
+
+  user.password_hash = bcrypt.hashSync(newPassword, 10);
+  reset.used = true;
+  // Log the user out of every device — their old password (and any leaked
+  // session tokens) shouldn't keep working after a reset.
+  db.sessions = db.sessions.filter(s => s.user_id !== user.id);
+  save();
+
+  res.json({ ok: true });
 });
 
 // ---------- Users ----------
@@ -510,6 +668,22 @@ io.on('connection', (socket) => {
     });
 
     if (wasEmpty) {
+      // Drop a "call started" entry into the group chat thread itself, WhatsApp-style,
+      // so it's part of the permanent chat history and shows up even for people
+      // who open the app later instead of tapping the notification.
+      const callMessage = {
+        id: uuid(),
+        user_id: socket.user.id,
+        user_name: socket.user.name,
+        text: '',
+        attachment: null,
+        type: 'call-start',
+        created_at: Date.now(),
+      };
+      db.messages.push(callMessage);
+      save();
+      io.emit('chat:message', callMessage);
+
       sendPushToUsers({
         excludeUserId: socket.user.id,
         title: `📞 ${socket.user.name} is calling Gujjar Penthouse`,
