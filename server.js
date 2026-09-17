@@ -8,6 +8,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
+const webpush = require('web-push');
 const { createStore } = require('./lib/jsondb');
 
 // ---------- Setup ----------
@@ -15,6 +16,43 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'app.json');
 const { data: db, save } = createStore(DB_PATH);
+
+// ---------- Push notifications ----------
+// These VAPID keys identify this server to push services (Google, Apple, etc).
+// They're safe to keep here since this is a private repo — but you can override
+// them with environment variables of the same name if you ever want to.
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY
+  || 'BJVSYev3ichUhn3boLtuYAdaOshJ2uuY-UVIJZgBUvDrAnmFDJew8mDOly-pYNi1F8aYJMCb8HxB4zkVfgwGPuI';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
+  || 'AYSFpjOE8BR6KSEOfQ3dL36CPE0ohtDpnPjuQdwCemA';
+
+webpush.setVapidDetails('mailto:gujjarpenthouse@gmail.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+// Sends a notification to every subscribed device belonging to the given users
+// (or everyone, if excludeUserId is the only filter). Cleans up subscriptions
+// that have gone stale (e.g. the user uninstalled the app).
+async function sendPushToUsers({ excludeUserId, title, body, tag }) {
+  const targets = db.pushSubscriptions.filter(s => s.user_id !== excludeUserId);
+  const stillValid = [];
+  let changed = false;
+
+  await Promise.all(targets.map(async (sub) => {
+    try {
+      await webpush.sendNotification(sub.subscription, JSON.stringify({ title, body, tag }));
+      stillValid.push(sub);
+    } catch (err) {
+      changed = true; // subscription expired or was revoked — drop it
+    }
+  }));
+
+  if (changed) {
+    const keptEndpoints = new Set(stillValid.map(s => s.subscription.endpoint));
+    db.pushSubscriptions = db.pushSubscriptions.filter(
+      s => s.user_id === excludeUserId || keptEndpoints.has(s.subscription.endpoint)
+    );
+    save();
+  }
+}
 
 const app = express();
 app.use(express.json());
@@ -138,6 +176,30 @@ app.get('/api/users', authMiddleware, (req, res) => {
   res.json({ users: db.users.map(publicUser) });
 });
 
+// ---------- Push notifications ----------
+app.get('/api/push/public-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', authMiddleware, (req, res) => {
+  const { subscription } = req.body || {};
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: 'Missing push subscription.' });
+  }
+  // Replace any existing subscription for this exact device.
+  db.pushSubscriptions = db.pushSubscriptions.filter(s => s.subscription.endpoint !== subscription.endpoint);
+  db.pushSubscriptions.push({ user_id: req.user.id, subscription, created_at: Date.now() });
+  save();
+  res.json({ ok: true });
+});
+
+app.post('/api/push/unsubscribe', authMiddleware, (req, res) => {
+  const { endpoint } = req.body || {};
+  db.pushSubscriptions = db.pushSubscriptions.filter(s => s.subscription.endpoint !== endpoint);
+  save();
+  res.json({ ok: true });
+});
+
 // ---------- Expenses ----------
 app.get('/api/expenses', authMiddleware, (req, res) => {
   const expenses = [...db.expenses].sort((a, b) => b.created_at - a.created_at);
@@ -170,6 +232,13 @@ app.post('/api/expenses', authMiddleware, (req, res) => {
   io.emit('balances:update', balances);
   io.emit('expense:new', expense);
   res.json({ ok: true, id: expense.id });
+
+  sendPushToUsers({
+    excludeUserId: req.user.id,
+    title: `${req.user.name} added an expense`,
+    body: `${expense.description} — Rs. ${expense.amount.toFixed(2)}`,
+    tag: 'gp-expense',
+  }).catch(() => {});
 });
 
 app.delete('/api/expenses/:id', authMiddleware, (req, res) => {
@@ -212,6 +281,13 @@ io.on('connection', (socket) => {
     db.messages.push(message);
     save();
     io.emit('chat:message', message);
+
+    sendPushToUsers({
+      excludeUserId: socket.user.id,
+      title: socket.user.name,
+      body: message.text,
+      tag: 'gp-chat',
+    }).catch(() => {});
   });
 });
 
