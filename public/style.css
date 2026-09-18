@@ -7,18 +7,22 @@
    ========================================================================= */
 
 :root {
-  /* ---- Brand / accent ---- */
-  --accent: #0EA5A0;
-  --accent-dark: #0B8783;
-  --accent-soft: rgba(14, 165, 160, 0.12);
+  /* ---- Brand / accent ----
+     A warmer, more energetic palette than a typical utility app: a
+     magenta-pink accent (the color of "like" buttons everywhere) plus a
+     sunset brand gradient, tuned to feel lively without turning garish. */
+  --accent: #E1306C;
+  --accent-dark: #B01A54;
+  --accent-soft: rgba(225, 48, 108, 0.12);
   --accent-contrast: #ffffff;
-  --brand-gradient: linear-gradient(135deg, #18C7B8 0%, #5B6CFF 100%);
+  --accent-glow: rgba(225, 48, 108, 0.35);
+  --brand-gradient: linear-gradient(135deg, #7B2FF7 0%, #E1306C 55%, #FF8A3D 100%);
 
   /* ---- Semantic ---- */
-  --positive: #1FAE6B;
-  --positive-soft: rgba(31, 174, 107, 0.12);
-  --danger: #FF3B30;
-  --danger-soft: rgba(255, 59, 48, 0.1);
+  --positive: #17C787;
+  --positive-soft: rgba(23, 199, 135, 0.13);
+  --danger: #FF3B5C;
+  --danger-soft: rgba(255, 59, 92, 0.1);
 
   /* ---- Neutrals (light) ---- */
   --bg: #F5F5F7;
@@ -38,8 +42,8 @@
   --header-text: rgba(255, 255, 255, 0.92);
   --header-text-muted: rgba(255, 255, 255, 0.6);
 
-  --bubble-out: #E4F7F4;
-  --bubble-out-text: #0C3E3B;
+  --bubble-out: #FDE1EB;
+  --bubble-out-text: #7A1140;
   --bubble-in: #FFFFFF;
   --bubble-in-text: #1D1D1F;
 
@@ -65,14 +69,15 @@
 
 /* ---------- Dark mode ---------- */
 :root[data-theme="dark"] {
-  --accent: #22C7C0;
-  --accent-dark: #17A39D;
-  --accent-soft: rgba(34, 199, 192, 0.16);
+  --accent: #FF5C93;
+  --accent-dark: #FF85B3;
+  --accent-soft: rgba(255, 92, 147, 0.18);
+  --accent-glow: rgba(255, 92, 147, 0.4);
 
-  --positive: #34D07E;
-  --positive-soft: rgba(52, 208, 126, 0.14);
-  --danger: #FF6961;
-  --danger-soft: rgba(255, 105, 97, 0.14);
+  --positive: #2FE9A4;
+  --positive-soft: rgba(47, 233, 164, 0.15);
+  --danger: #FF6B87;
+  --danger-soft: rgba(255, 107, 135, 0.16);
 
   --bg: #000000;
   --bg-elevated: #1C1C1E;
@@ -91,8 +96,8 @@
   --header-text: rgba(255, 255, 255, 0.94);
   --header-text-muted: rgba(255, 255, 255, 0.55);
 
-  --bubble-out: #0F3F3B;
-  --bubble-out-text: #E4F7F4;
+  --bubble-out: #4A1230;
+  --bubble-out-text: #FFDCEA;
   --bubble-in: #242426;
   --bubble-in-text: #F5F5F7;
 
@@ -208,8 +213,8 @@ button {
   transition: background 0.15s var(--ease), transform 0.12s var(--ease), box-shadow 0.15s var(--ease), opacity 0.15s var(--ease);
 }
 
-button:hover { background: var(--accent-dark); }
-button:active { transform: scale(0.97); }
+button:hover { background: var(--accent-dark); box-shadow: 0 4px 18px var(--accent-glow); }
+button:active { transform: scale(0.97); box-shadow: none; }
 button:disabled { opacity: 0.55; cursor: default; transform: none; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent);
@@ -1451,9 +1456,39 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   color: white;
 }
 
-.chat-header-info { display: flex; flex-direction: column; }
+.chat-header-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .chat-header-title { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
 .chat-header-sub { font-size: 11.5px; color: rgba(255, 255, 255, 0.6); margin-top: 1px; }
+
+/* Small avatar stack: who's currently got the chat tab open */
+.chat-viewers-row {
+  display: flex;
+  align-items: center;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.chat-viewers-row .chat-viewer-avatar {
+  margin-left: -8px;
+  border: 2px solid var(--header-bg);
+  box-shadow: 0 0 0 2px var(--positive);
+  border-radius: 50%;
+}
+.chat-viewers-row .chat-viewer-avatar:first-child { margin-left: 0; }
+
+/* Tiny "seen by" avatar(s) under the last message someone has read */
+.msg-seen-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 3px;
+}
+.chat-msg-row:not(.mine) .msg-seen-row { justify-content: flex-start; }
+.msg-seen-row .seen-avatar {
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+
+.member-row-status.in-chat { color: var(--positive); font-weight: 700; }
 
 .call-bar {
   background: var(--bg-elevated);
