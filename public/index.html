@@ -26,6 +26,22 @@
     const themeEnd = new Date('2026-11-03T23:59:59');
     if (now <= themeEnd) document.documentElement.setAttribute('data-event-theme', 'baraat');
   } catch {}
+  // Some mobile browsers (especially inside home-screen/standalone PWAs, or
+  // older WebViews) don't keep `100dvh` perfectly in sync with the real
+  // visible area, which left a gap of dead space at the bottom of the app.
+  // Measuring the actual viewport in JS and feeding it back in as a CSS
+  // variable is the standard, reliable fix — set before first paint so
+  // there's no flash of the wrong size.
+  (function () {
+    function setAppHeight() {
+      const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      document.documentElement.style.setProperty('--app-height', h + 'px');
+    }
+    setAppHeight();
+    window.addEventListener('resize', setAppHeight);
+    window.addEventListener('orientationchange', setAppHeight);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', setAppHeight);
+  })();
 </script>
 </head>
 <body>
