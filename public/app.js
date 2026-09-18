@@ -348,7 +348,7 @@ window.addEventListener('load', syncHeaderHeight);
 let catTimer = null;
 let catX = 8;
 let catY = 60;
-const CAT_STATES = ['cat-walking', 'cat-sit', 'cat-sleep', 'cat-clean', 'cat-meow', 'cat-dance'];
+const CAT_STATES = ['cat-walking', 'cat-sit', 'cat-sleep', 'cat-clean', 'cat-meow', 'cat-dance', 'cat-play'];
 
 function setCatState(state) {
   const cat = $('#chat-cat');
@@ -390,7 +390,7 @@ function getCatBounds() {
 function scheduleNextCatBehavior() {
   clearTimeout(catTimer);
   const cat = $('#chat-cat');
-  if (!cat) return;
+  if (!cat || catPlayingWithTyping) return;
 
   // Weighted so it walks around most of the time, with occasional rest stops.
   const choices = ['walk', 'walk', 'walk', 'sit', 'sleep', 'clean'];
@@ -436,11 +436,52 @@ function initChatCat() {
 // meowing at it or breaking into a quick dance — then back to normal.
 function catReactToMessage() {
   const cat = $('#chat-cat');
-  if (!cat || !initChatCat._started) return;
+  if (!cat || !initChatCat._started || catPlayingWithTyping) return;
   clearTimeout(catTimer);
   const reaction = Math.random() < 0.5 ? 'cat-meow' : 'cat-dance';
   setCatState(reaction);
   catTimer = setTimeout(scheduleNextCatBehavior, 1700);
+}
+
+// Whenever someone starts typing, the kitten drops whatever it's doing,
+// trots straight over to the typing indicator's little dots, and bats at
+// them like it's the most exciting toy in the room — until they stop.
+let catPlayingWithTyping = false;
+function catGoPlayWithTyping() {
+  const cat = $('#chat-cat');
+  const indicator = $('#typing-indicator');
+  const card = cat?.closest('.chat-card');
+  if (!cat || !indicator || !card || !initChatCat._started) return;
+
+  catPlayingWithTyping = true;
+  clearTimeout(catTimer);
+
+  const cardRect = card.getBoundingClientRect();
+  const indRect = indicator.getBoundingClientRect();
+  if (!indRect.width || !indRect.height) { catPlayingWithTyping = false; return; }
+
+  // Aim just beside the typing bubble's dots, roughly level with them.
+  const targetX = Math.max(6, indRect.left - cardRect.left - 30);
+  const targetY = Math.max(6, indRect.top - cardRect.top + (indRect.height / 2) - 10);
+  cat.classList.toggle('facing-left', targetX < catX);
+  catX = targetX;
+  catY = targetY;
+  setCatState('cat-walking');
+  moveCatTo(targetX, targetY);
+
+  // Give it time to actually run over before it starts pawing at the dots.
+  clearTimeout(catTimer);
+  catTimer = setTimeout(() => {
+    if (!catPlayingWithTyping) return;
+    setCatState('cat-play');
+  }, 750);
+}
+
+function catStopPlayingWithTyping() {
+  if (!catPlayingWithTyping) return;
+  catPlayingWithTyping = false;
+  clearTimeout(catTimer);
+  scheduleNextCatBehavior();
 }
 
 // ---------- Home greeting (a little personal touch each time you open the app) ----------
@@ -501,7 +542,7 @@ function roamFigure(figureId) {
   const stage = $('#event-stage');
   if (!fig || !stage || !isEventThemeActive()) return;
 
-  const stageW = stage.clientWidth || 92;
+  const stageW = stage.clientWidth || 68;
   const figW = fig.offsetWidth || 30;
   const maxX = Math.max(4, stageW - figW - 4);
   const targetX = Math.round(Math.random() * maxX);
@@ -522,7 +563,6 @@ function startDancerRoaming() {
   if (dancerRoamStarted) return;
   dancerRoamStarted = true;
   roamFigure('dancer-figure-boy');
-  setTimeout(() => roamFigure('dancer-figure-girl'), 700); // offset so they don't sync perfectly
 }
 
 function renderEventBanner() {
@@ -1663,6 +1703,7 @@ function renderTypingIndicator(typingList) {
   const others = (typingList || []).filter(t => t.userId !== me?.id);
   if (others.length === 0) {
     box.classList.add('hidden');
+    catStopPlayingWithTyping();
     return;
   }
   const avatarsBox = $('#typing-indicator-avatars');
@@ -1675,6 +1716,7 @@ function renderTypingIndicator(typingList) {
   box.classList.remove('hidden');
   const messagesBox = $('#chat-messages');
   if (messagesBox) messagesBox.scrollTop = messagesBox.scrollHeight;
+  catGoPlayWithTyping();
 }
 
 $('#chat-form').addEventListener('submit', async (e) => {
