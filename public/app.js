@@ -281,6 +281,22 @@ $$('.page-btn').forEach((btn) => {
   btn.addEventListener('click', () => switchToPage(btn.dataset.page));
 });
 
+// Bottom-nav "+" — Instagram's compose entry point: jump to Feed and drop
+// the cursor straight into the composer.
+$('#nav-add-btn')?.addEventListener('click', () => {
+  switchToPage('feed');
+  requestAnimationFrame(() => {
+    $('#new-post-card')?.classList.add('expanded');
+    $('#post-caption')?.focus();
+  });
+});
+
+// Bottom-nav profile avatar — same profile modal as the header button.
+$('#nav-profile-btn')?.addEventListener('click', () => {
+  haptic('light');
+  $('#profile-btn')?.click();
+});
+
 function setTabBadge(tab, count) {
   const badge = $(`#badge-${tab}`);
   if (!badge) return;
@@ -328,6 +344,7 @@ async function startApp() {
   setupPollModal();
   setupTypingIndicator();
   setupMembersPopup();
+  setupStoriesRow();
 }
 
 // ---------- Keep the chat page's height in sync with the real header ----------
@@ -640,10 +657,16 @@ function setupMembersPopup() {
 
 function renderProfileButton() {
   const btn = $('#profile-btn');
-  if (!btn || !me) return;
-  btn.innerHTML = avatarOrInitials(me.id, me.name, '', 32);
-  btn.title = me.name;
-  btn.classList.remove('hidden');
+  if (btn && me) {
+    btn.innerHTML = avatarOrInitials(me.id, me.name, '', 32);
+    btn.title = me.name;
+    btn.classList.remove('hidden');
+  }
+  const navBtn = $('#nav-profile-btn');
+  if (navBtn && me) {
+    navBtn.innerHTML = avatarOrInitials(me.id, me.name, '', 26);
+    navBtn.title = me.name;
+  }
 }
 
 // ---------- Profile modal (view/edit profile, avatar, dark mode, password) ----------
@@ -876,12 +899,32 @@ async function loadUsers() {
   const data = await api('/api/users');
   users = data.users;
   renderUserPickers();
+  renderStoriesRow();
 }
 
 function userName(id) {
   const u = users.find(u => u.id === id);
   return u ? u.name : 'Someone';
 }
+
+// ---------- Icons (thin-stroke, Instagram-style line icons; a couple of
+// filled variants for "active" states) ----------
+const ICONS = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V20a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1V9.5"/></svg>',
+  homeActive: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2.6 2.2 10.8a1 1 0 0 0 .64 1.77H4.5V20a2 2 0 0 0 2 2H9a1 1 0 0 0 1-1v-5.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V21a1 1 0 0 0 1 1h2.5a2 2 0 0 0 2-2v-7.43h1.66a1 1 0 0 0 .64-1.77z"/></svg>',
+  explore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></svg>',
+  exploreActive: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></svg>',
+  plusSquare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 3.5 18.5 8-7.7 3-3 7.7-7.8-18.7Z"/></svg>',
+  chatActive: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="m2.5 3.5 18.5 8-7.7 3-3 7.7-7.8-18.7Z"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7.6-4.6-10.2-9.3C.2 8.7 1.6 5 5.2 4.2c2.1-.5 4.1.4 5.3 2.1l1.5 2 1.5-2c1.2-1.7 3.2-2.6 5.3-2.1 3.6.8 5 4.5 3.4 7.5C19.6 16.4 12 21 12 21Z"/></svg>',
+  heartActive: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21s-7.6-4.6-10.2-9.3C.2 8.7 1.6 5 5.2 4.2c2.1-.5 4.1.4 5.3 2.1l1.5 2 1.5-2c1.2-1.7 3.2-2.6 5.3-2.1 3.6.8 5 4.5 3.4 7.5C19.6 16.4 12 21 12 21Z"/></svg>',
+  comment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.8 8.4c-1.4 0-2.7-.3-3.9-.9L3 20l1.1-4.7A8.3 8.3 0 0 1 3 11.5 8.4 8.4 0 0 1 11.8 3a8.4 8.4 0 0 1 9.2 8.5Z"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>',
+  bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1Z"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h2.6l1.2-2h8.4l1.2 2H20a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="14" r="3.4"/></svg>',
+};
 
 // ---------- Avatars ----------
 const AVATAR_COLORS = ['#FF6B6B', '#FFA94D', '#4ECDC4', '#5B8DEF', '#8E7CFF', '#FF7EB6', '#38C793', '#FFB84D'];
@@ -1789,11 +1832,13 @@ function connectSocket() {
   socket.on('presence:snapshot', ({ onlineUserIds: ids }) => {
     onlineUserIds = new Set(ids);
     renderMembersList();
+    renderStoriesRow();
   });
 
   socket.on('presence:update', ({ userId, online }) => {
     if (online) onlineUserIds.add(userId); else onlineUserIds.delete(userId);
     renderMembersList();
+    renderStoriesRow();
   });
 
   // ---------- Chat message reactions ----------
@@ -1864,7 +1909,21 @@ function connectSocket() {
     if (btn) {
       const likedByMe = likes.includes(me.id);
       btn.classList.toggle('liked', likedByMe);
-      btn.innerHTML = `${likedByMe ? '❤️' : '🤍'} <span class="count">${likes.length}</span>`;
+      btn.innerHTML = likedByMe ? ICONS.heartActive : ICONS.heart;
+    }
+    let likesEl = card.querySelector('.post-card-likes');
+    if (likes.length === 0) {
+      likesEl?.remove();
+    } else {
+      const label = `${likes.length} like${likes.length === 1 ? '' : 's'}`;
+      if (likesEl) {
+        likesEl.textContent = label;
+      } else {
+        likesEl = document.createElement('div');
+        likesEl.className = 'post-card-likes';
+        likesEl.textContent = label;
+        card.querySelector('.post-card-actions').insertAdjacentElement('afterend', likesEl);
+      }
     }
   });
 
@@ -1876,8 +1935,6 @@ function connectSocket() {
     if (!card) return;
     const commentsBox = card.querySelector('.post-card-comments');
     if (commentsBox) commentsBox.insertAdjacentHTML('beforeend', renderComment(comment));
-    const countEls = card.querySelectorAll('.post-action-btn .count');
-    if (countEls[1]) countEls[1].textContent = post.comments.length;
   });
 
   // ---------- Call signaling ----------
@@ -1985,10 +2042,20 @@ $('#post-form').addEventListener('submit', async (e) => {
     await api('/api/posts', { method: 'POST', body: JSON.stringify({ caption, media }) });
     captionInput.value = '';
     clearPostMediaPreview();
+    $('#new-post-card')?.classList.remove('expanded');
   } catch (err) {
     $('#post-error').textContent = err.message;
   } finally {
     submitBtn.disabled = false;
+  }
+});
+
+// Slim composer pill expands while in use, and settles back down once
+// it's empty and loses focus — Instagram-style compact "create" entry point.
+$('#post-caption')?.addEventListener('focus', () => $('#new-post-card')?.classList.add('expanded'));
+$('#post-caption')?.addEventListener('blur', () => {
+  if (!$('#post-caption').value.trim() && $('#post-media-preview')?.classList.contains('hidden')) {
+    $('#new-post-card')?.classList.remove('expanded');
   }
 });
 
@@ -2006,6 +2073,42 @@ function renderFeed() {
     return;
   }
   list.innerHTML = posts.map(renderPostCard).join('');
+}
+
+// Instagram-style "stories" row at the top of the Feed — repurposed here as
+// a quick way to see who's home and jump to their profile. "Your story" on
+// the left opens the composer below; everyone else gets the same gradient
+// ring treatment tapping through to their profile (data-action="view-profile"
+// is handled by the existing global click delegate).
+function renderStoriesRow() {
+  const row = $('#stories-row');
+  if (!row || !me) return;
+  const others = users.filter((u) => u.id !== me.id);
+  const myRing = avatarOrInitials(me.id, me.name, '', 58);
+  const itemsHtml = others.map((u) => `
+    <div class="story-item" data-action="view-profile" data-user-id="${u.id}">
+      <span class="story-ring ${onlineUserIds.has(u.id) ? 'story-ring-online' : ''}">${avatarOrInitials(u.id, u.name, '', 58)}</span>
+      <span class="story-name">${escapeHtml(u.name.split(' ')[0])}</span>
+    </div>
+  `).join('');
+  row.innerHTML = `
+    <div class="story-item" id="story-item-you" title="Share something">
+      <span class="story-ring story-ring-you">${myRing}<span class="story-add-badge">+</span></span>
+      <span class="story-name">Your story</span>
+    </div>
+    ${itemsHtml}
+  `;
+}
+
+function setupStoriesRow() {
+  const row = $('#stories-row');
+  if (!row || row.dataset.wired) return;
+  row.dataset.wired = '1';
+  row.addEventListener('click', (e) => {
+    if (e.target.closest('#story-item-you')) {
+      $('#nav-add-btn')?.click();
+    }
+  });
 }
 
 function timeAgo(timestamp) {
@@ -2036,25 +2139,31 @@ function renderPostCard(post) {
         ? `<div class="post-card-media" data-action="dbltap-like"><video src="${post.media.url}" controls></video></div>`
         : `<div class="post-card-media" data-action="dbltap-like"><img src="${post.media.url}" alt="" /></div>`)
     : '';
+  const likeCount = post.likes.length;
+  const likesLabel = likeCount === 0 ? '' : `<div class="post-card-likes">${likeCount} like${likeCount === 1 ? '' : 's'}</div>`;
 
   return `
     <div class="post-card" data-post-id="${post.id}">
       <div class="post-card-header">
         <span class="post-card-header-clickable" data-action="view-profile" data-user-id="${post.user_id}">
-          ${avatarOrInitials(post.user_id, post.user_name, '', 38)}
+          <span class="post-card-avatar-ring">${avatarOrInitials(post.user_id, post.user_name, '', 34)}</span>
           <div class="post-card-header-info">
             <div class="post-card-header-name">${escapeHtml(post.user_name)}${isMine ? ' (you)' : ''}</div>
             <div class="post-card-header-time">${timeAgo(post.created_at)}</div>
           </div>
         </span>
-        ${isMine ? `<button class="post-delete-btn" data-action="delete-post" title="Delete post">🗑️</button>` : ''}
+        ${isMine ? `<button class="post-more-btn" data-action="delete-post" title="Delete post">${ICONS.more}</button>` : ''}
       </div>
-      ${post.caption ? `<div class="post-card-caption">${escapeHtml(post.caption)}</div>` : ''}
       ${mediaHtml}
       <div class="post-card-actions">
-        <button class="post-action-btn ${likedByMe ? 'liked' : ''}" data-action="like-post">${likedByMe ? '❤️' : '🤍'} <span class="count">${post.likes.length}</span></button>
-        <span class="post-action-btn" style="cursor:default;">💬 <span class="count">${post.comments.length}</span></span>
+        <button class="post-action-btn icon-only ${likedByMe ? 'liked' : ''}" data-action="like-post" title="Like">${likedByMe ? ICONS.heartActive : ICONS.heart}</button>
+        <span class="post-action-btn icon-only" style="cursor:default;" title="Comments">${ICONS.comment}</span>
+        <span class="post-action-btn icon-only" style="cursor:default;" title="Share">${ICONS.share}</span>
+        <span class="post-actions-spacer"></span>
+        <span class="post-action-btn icon-only" style="cursor:default;" title="Save">${ICONS.bookmark}</span>
       </div>
+      ${likesLabel}
+      ${post.caption ? `<div class="post-card-caption"><span class="post-card-caption-name">${escapeHtml(post.user_name)}</span> ${escapeHtml(post.caption)}</div>` : ''}
       <div class="post-card-comments">${post.comments.map(renderComment).join('')}</div>
       <form class="post-comment-form" data-action="comment-form">
         <input type="text" placeholder="Add a comment..." maxlength="500" required />
