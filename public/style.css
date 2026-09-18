@@ -158,56 +158,33 @@
    date check in index.html's head).
    ========================================================================= */
 :root[data-event-theme="baraat"] {
-  --accent: #A31545;
-  --accent-dark: #7A0F35;
-  --accent-soft: rgba(163, 21, 69, 0.12);
-  --accent-glow: rgba(201, 162, 39, 0.45);
-  --brand-gradient: linear-gradient(135deg, #C9A227 0%, #A31545 55%, #E0218A 100%);
+  /* Keep the same dark, premium base (bg/card/header/text/accent) as the
+     rest of the app — the wedding celebration reads through a dedicated
+     gold "festive" accent layered on top, not through swapping the whole
+     interface to a different color language. */
+  --festive-gold: #F0B429;
+  --festive-gold-rgb: 240, 180, 41;
+  --festive-gold-soft: rgba(240, 180, 41, 0.14);
+  --brand-gradient: linear-gradient(135deg, #5B5CFF 0%, #A855F7 55%, #F0B429 100%);
+  --accent-glow: rgba(240, 180, 41, 0.35);
 
-  --positive: #0F8A5F;
-  --positive-soft: rgba(15, 138, 95, 0.12);
+  --bubble-out: linear-gradient(135deg, #2A2B63 0%, #4A2E4A 100%);
+  --bubble-out-text: #FFF0DC;
 
-  --bg: #FFF8EE;
-  --bg-subtle: #FBEFDC;
-  --bg-subtle-hover: #F5E4C8;
-  --border: rgba(163, 21, 69, 0.12);
-
-  --bubble-out: #FBE3EC;
-  --bubble-out-text: #7A0F35;
-
-  --header-bg: #3A0A1E;
-
-  /* A very soft, tiled mehndi/paisley-inspired pattern behind everything. */
+  /* A very soft, tiled mehndi/paisley-inspired pattern behind everything,
+     recolored to the app's own blue/purple/gold rather than maroon-on-cream. */
   --event-pattern:
-    radial-gradient(circle at 12px 12px, rgba(201, 162, 39, 0.16) 0 4px, transparent 5px),
-    radial-gradient(circle at 34px 34px, rgba(163, 21, 69, 0.10) 0 3px, transparent 4px);
+    radial-gradient(circle at 12px 12px, rgba(var(--festive-gold-rgb), 0.14) 0 4px, transparent 5px),
+    radial-gradient(circle at 34px 34px, rgba(var(--accent2-rgb), 0.12) 0 3px, transparent 4px);
 }
 
 :root[data-theme="dark"][data-event-theme="baraat"] {
-  --accent: #FF7FAE;
-  --accent-dark: #FFB0CE;
-  --accent-soft: rgba(255, 127, 174, 0.16);
-  --accent-glow: rgba(230, 184, 74, 0.4);
-  --brand-gradient: linear-gradient(135deg, #E6B84A 0%, #C7245B 55%, #FF6FB0 100%);
-
-  --positive: #33D497;
-  --positive-soft: rgba(51, 212, 151, 0.14);
-
-  --bg: #1A0E12;
-  --bg-elevated: #241017;
-  --bg-subtle: #2C1219;
-  --bg-subtle-hover: #35161E;
-  --card: #241017;
-  --border: rgba(255, 176, 206, 0.12);
-
-  --bubble-out: #4A1230;
-  --bubble-out-text: #FFDCEA;
-
-  --header-bg: #140A0D;
-
-  --event-pattern:
-    radial-gradient(circle at 12px 12px, rgba(230, 184, 74, 0.14) 0 4px, transparent 5px),
-    radial-gradient(circle at 34px 34px, rgba(255, 127, 174, 0.10) 0 3px, transparent 4px);
+  /* The OLED dark-mode toggle deepens this the same way it deepens the
+     normal theme; festive gold accent stays consistent. */
+  --brand-gradient: linear-gradient(135deg, #6C6DFF 0%, #B968FF 55%, #F0B429 100%);
+  --accent-glow: rgba(240, 180, 41, 0.4);
+  --bubble-out: linear-gradient(135deg, #232463 0%, #3E2650 100%);
+  --bubble-out-text: #FFF0DC;
 }
 
 :root[data-event-theme="baraat"] body {
@@ -218,10 +195,10 @@
 /* A gentle sparkle behind the home greeting card, and a gold ring around
    the brand logo — small, tasteful signs this is a special occasion. */
 :root[data-event-theme="baraat"] .home-greeting-card {
-  box-shadow: var(--shadow-md), 0 0 0 1px rgba(201, 162, 39, 0.35);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(var(--festive-gold-rgb), 0.4);
 }
 :root[data-event-theme="baraat"] .brand-logo-header {
-  box-shadow: 0 0 0 2px #C9A227;
+  box-shadow: 0 0 0 2px var(--festive-gold);
   border-radius: 50%;
 }
 
@@ -355,8 +332,9 @@
   width: auto;
   max-width: 100%;
   margin: 0 auto 3px;
-  background: #fff;
-  color: #7A0F35;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid rgba(var(--festive-gold-rgb), 0.3);
   font-size: 8.5px;
   font-weight: 700;
   line-height: 1.25;
@@ -374,10 +352,8 @@
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: #fff;
+  border-top-color: var(--bg-elevated);
 }
-:root[data-theme="dark"] .event-speech-bubble { background: #2A2A2E; color: #FFDCEA; }
-:root[data-theme="dark"] .event-speech-bubble::after { border-top-color: #2A2A2E; }
 
 @media (max-width: 380px) {
   .event-dancer { width: 54px; margin: 0; }
