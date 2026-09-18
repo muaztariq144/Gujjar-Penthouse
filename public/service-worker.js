@@ -84,6 +84,10 @@ self.addEventListener('notificationclick', (event) => {
   if (event.action === 'decline') return;
 
   const wantsToJoin = notifData.type === 'call-invite'; // true for both the "Join" button and a plain tap on the call notification
+  // Everything else (a post, like, comment, task, poll, or chat message) carries
+  // {targetType, targetId} so tapping it can jump straight to that specific
+  // thing instead of just opening the app to whatever tab was last open.
+  const target = notifData.extra || null;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientsArr) => {
@@ -91,9 +95,12 @@ self.addEventListener('notificationclick', (event) => {
       if (existing) {
         await existing.focus();
         if (wantsToJoin) existing.postMessage({ type: 'join-call' });
+        else if (target?.targetType && target?.targetId) existing.postMessage({ type: 'open-target', target });
         return;
       }
-      const url = wantsToJoin ? '/?join-call=1' : '/';
+      let url = '/';
+      if (wantsToJoin) url = '/?join-call=1';
+      else if (target?.targetType && target?.targetId) url = `/?openTarget=${encodeURIComponent(target.targetType)}:${encodeURIComponent(target.targetId)}`;
       return self.clients.openWindow(url);
     })
   );
