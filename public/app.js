@@ -878,6 +878,9 @@ $('#all-tasks-list')?.addEventListener('click', handleTaskListClick);
 function notificationIcon(type) {
   if (type === 'task') return '✅';
   if (type === 'expense') return '💸';
+  if (type === 'like') return '❤️';
+  if (type === 'comment') return '💬';
+  if (type === 'post') return '📸';
   return '🔔';
 }
 
@@ -1023,21 +1026,43 @@ function renderAttachment(attachment) {
   return `<a class="msg-file-chip" href="${attachment.url}" download target="_blank" rel="noopener">📎 ${escapeHtml(attachment.name || 'File')}</a>`;
 }
 
+function attachmentLabel(kind) {
+  if (kind === 'image') return '📷 Photo';
+  if (kind === 'video') return '🎥 Video';
+  if (kind === 'file') return '📎 Attachment';
+  return '';
+}
+
+function renderReplyQuote(replyTo) {
+  if (!replyTo) return '';
+  const isMine = replyTo.userId === me.id;
+  const label = replyTo.text ? escapeHtml(replyTo.text).slice(0, 140) : attachmentLabel(replyTo.attachmentKind);
+  return `
+    <div class="msg-reply-quote" data-action="scroll-to-message" data-scroll-target="${replyTo.id}">
+      <div class="msg-reply-quote-name" style="color:${colorForName(replyTo.userName || 'x')};">${isMine ? 'You' : escapeHtml(replyTo.userName || 'Someone')}</div>
+      <div class="msg-reply-quote-text">${label}</div>
+    </div>
+  `;
+}
+
 function renderMessage(m) {
   if (m.type === 'call-start') return renderCallSystemMessage(m);
 
   const mine = m.user_id === me.id;
   const name = m.user_name || userName(m.user_id);
   const time = new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const attachmentKind = m.attachment ? m.attachment.kind : '';
   return `
-    <div class="chat-msg-row ${mine ? 'mine' : ''}">
+    <div class="chat-msg-row ${mine ? 'mine' : ''}" data-message-id="${m.id}" data-sender-name="${escapeHtml(name)}" data-text="${escapeHtml(m.text || '')}" data-attachment-kind="${attachmentKind}">
       <div class="chat-msg">
         <div class="bubble">
           ${mine ? '' : `<div class="sender" data-action="view-profile" data-user-id="${m.user_id}" style="color:${colorForName(name)};">${escapeHtml(name)}</div>`}
+          ${renderReplyQuote(m.reply_to)}
           ${renderAttachment(m.attachment)}
           ${m.text ? `<span class="msg-text">${escapeHtml(m.text)}</span>` : ''}
           <span class="msg-time">${time}</span>
         </div>
+        <button type="button" class="msg-reply-hint" data-action="start-reply" title="Reply">↩</button>
       </div>
     </div>
   `;
@@ -1106,6 +1131,106 @@ function setupChatMediaInput() {
   });
 }
 
+// ---------- Reply to a message (swipe right, WhatsApp/Instagram-style) ----------
+let replyTarget = null;
+
+function renderReplyPreview() {
+  const box = $('#chat-reply-preview');
+  if (!box) return;
+  if (!replyTarget) {
+    box.classList.add('hidden');
+    return;
+  }
+  const snippet = replyTarget.text ? escapeHtml(replyTarget.text).slice(0, 120) : attachmentLabel(replyTarget.attachmentKind);
+  $('#chat-reply-preview-name').textContent = replyTarget.senderName;
+  $('#chat-reply-preview-text').innerHTML = snippet;
+  box.classList.remove('hidden');
+}
+
+function startReplyTo(row) {
+  if (!row || !row.dataset.messageId) return;
+  replyTarget = {
+    id: row.dataset.messageId,
+    senderName: row.classList.contains('mine') ? 'You' : (row.dataset.senderName || 'Someone'),
+    text: row.dataset.text || '',
+    attachmentKind: row.dataset.attachmentKind || '',
+  };
+  renderReplyPreview();
+  $('#chat-input')?.focus();
+}
+
+function cancelReply() {
+  replyTarget = null;
+  renderReplyPreview();
+}
+
+$('#chat-reply-cancel')?.addEventListener('click', cancelReply);
+
+const chatMessagesEl = $('#chat-messages');
+if (chatMessagesEl) {
+  chatMessagesEl.addEventListener('click', (e) => {
+    const replyHint = e.target.closest('[data-action="start-reply"]');
+    if (replyHint) {
+      startReplyTo(replyHint.closest('.chat-msg-row'));
+      return;
+    }
+    const quote = e.target.closest('[data-action="scroll-to-message"]');
+    if (quote) {
+      const target = document.querySelector(`.chat-msg-row[data-message-id="${quote.dataset.scrollTarget}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('flash-highlight');
+        setTimeout(() => target.classList.remove('flash-highlight'), 900);
+      }
+    }
+  });
+
+  // Swipe (touch) / drag (mouse) a message slightly to the right to reply to
+  // it — same gesture as WhatsApp and Instagram DMs. A small hover "↩" button
+  // (added in renderMessage) covers desktop users who aren't dragging.
+  let chatDrag = null;
+  const SWIPE_TRIGGER_PX = 40;
+  const SWIPE_MAX_PX = 64;
+
+  chatMessagesEl.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('a, video, button, .sender, [data-action]')) return;
+    const row = e.target.closest('.chat-msg-row');
+    const bubbleWrap = row?.querySelector('.chat-msg');
+    if (!row || !bubbleWrap) return;
+    chatDrag = { row, bubbleWrap, startX: e.clientX, startY: e.clientY, dx: 0, dragging: false, pointerId: e.pointerId };
+  });
+
+  chatMessagesEl.addEventListener('pointermove', (e) => {
+    if (!chatDrag || chatDrag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - chatDrag.startX;
+    const dy = e.clientY - chatDrag.startY;
+    if (!chatDrag.dragging) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dy) > Math.abs(dx)) { chatDrag = null; return; } // vertical scroll, not a reply swipe
+      chatDrag.dragging = true;
+      chatDrag.row.classList.add('swipe-active');
+    }
+    const clamped = Math.max(0, Math.min(dx, SWIPE_MAX_PX));
+    chatDrag.dx = clamped;
+    chatDrag.bubbleWrap.style.transform = `translateX(${clamped}px)`;
+    chatDrag.row.classList.toggle('swiping-reply', clamped > SWIPE_TRIGGER_PX);
+  });
+
+  function endChatDrag(e) {
+    if (!chatDrag) return;
+    const { row, bubbleWrap, dx, dragging } = chatDrag;
+    if (dragging) {
+      bubbleWrap.style.transform = '';
+      row.classList.remove('swipe-active', 'swiping-reply');
+      if (dx > SWIPE_TRIGGER_PX) startReplyTo(row);
+    }
+    chatDrag = null;
+  }
+  chatMessagesEl.addEventListener('pointerup', endChatDrag);
+  chatMessagesEl.addEventListener('pointercancel', endChatDrag);
+  chatMessagesEl.addEventListener('pointerleave', endChatDrag);
+}
+
 $('#chat-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $('#chat-input');
@@ -1125,9 +1250,11 @@ $('#chat-form').addEventListener('submit', async (e) => {
     attachment: attachment
       ? { url: attachment.url, name: attachment.name, mime: attachment.mime, kind: attachment.kind }
       : null,
+    replyTo: replyTarget ? replyTarget.id : null,
   });
   input.value = '';
   clearChatMediaPreview();
+  cancelReply();
 });
 
 function connectSocket() {
