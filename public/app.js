@@ -3,6 +3,9 @@ let token = localStorage.getItem('gp_token') || null;
 let me = null;
 let users = [];
 let socket = null;
+let latestBalances = { net: {}, settlements: [] };
+let tasksCache = [];
+let notificationsCache = [];
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -237,6 +240,9 @@ $$('.page-btn').forEach((btn) => {
     $$('.page').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#page-${btn.dataset.page}`).classList.add('active');
+    // Notifications are marked "seen" server-side the moment they're fetched,
+    // so re-fetch each time someone actually opens Home to see fresh ones.
+    if (btn.dataset.page === 'home' && me) loadNotifications().catch(() => {});
   });
 });
 
@@ -251,6 +257,8 @@ async function startApp() {
   await loadBalances();
   await loadMessages();
   await loadFeed();
+  await loadTasks();
+  await loadNotifications();
   connectSocket();
   setupNotifications();
   maybeAutoJoinCall();
@@ -482,9 +490,7 @@ async function tryAutoLogin() {
 }
 
 // ---------- Users / split checkboxes ----------
-async function loadUsers() {
-  const data = await api('/api/users');
-  users = data.users;
+function renderUserPickers() {
   const sub = $('#header-sub');
   if (sub) sub.textContent = `${users.length} roommate${users.length === 1 ? '' : 's'}`;
   const box = $('#split-checkboxes');
@@ -495,6 +501,21 @@ async function loadUsers() {
       ${escapeHtml(u.name)}
     </label>
   `).join('');
+
+  const assigneeSelect = $('#task-assignee');
+  if (assigneeSelect) {
+    const previousValue = assigneeSelect.value;
+    assigneeSelect.innerHTML = users.map(u => `
+      <option value="${u.id}">${escapeHtml(u.name)}${u.id === me?.id ? ' (you)' : ''}</option>
+    `).join('');
+    if (previousValue && users.some(u => u.id === previousValue)) assigneeSelect.value = previousValue;
+  }
+}
+
+async function loadUsers() {
+  const data = await api('/api/users');
+  users = data.users;
+  renderUserPickers();
 }
 
 function userName(id) {
@@ -672,7 +693,18 @@ async function loadBalances() {
   renderBalances(data);
 }
 
+// Builds the one-line "You owe / are owed / are settled up" summary text
+// shared by the Balances page banner and the Home tab.
+function myBalanceLineText(net) {
+  const myNet = net[me?.id] ?? 0;
+  if (Math.abs(myNet) < 0.01) return "You're all settled up.";
+  if (myNet > 0) return `You are owed Rs. ${myNet.toFixed(2)} overall.`;
+  return `You owe Rs. ${Math.abs(myNet).toFixed(2)} overall.`;
+}
+
 function renderBalances({ net, settlements }) {
+  latestBalances = { net, settlements };
+
   // ---- Summary banner: how the current user personally stands ----
   const myNet = net[me?.id] ?? 0;
   const bannerLabel = $('#balance-banner-label');
@@ -690,6 +722,10 @@ function renderBalances({ net, settlements }) {
     }
   }
 
+  // ---- Home tab single-line balance summary ----
+  const homeBalanceText = $('#home-balance-text');
+  if (homeBalanceText) homeBalanceText.textContent = myBalanceLineText(net);
+
   // ---- Who owes whom ----
   const settlementsList = $('#settlements-list');
   if (settlements.length === 0) {
@@ -697,11 +733,15 @@ function renderBalances({ net, settlements }) {
   } else {
     settlementsList.innerHTML = settlements.map(s => `
       <li class="settlement-row">
-        ${avatarOrInitials(s.from, userName(s.from), '', 30)}
-        <strong>${escapeHtml(userName(s.from))}</strong>
+        <span class="user-link" data-action="view-profile" data-user-id="${s.from}">
+          ${avatarOrInitials(s.from, userName(s.from), '', 30)}
+          <strong>${escapeHtml(userName(s.from))}</strong>
+        </span>
         <span class="settlement-arrow">→</span>
-        <strong>${escapeHtml(userName(s.to))}</strong>
-        ${avatarOrInitials(s.to, userName(s.to), '', 30)}
+        <span class="user-link" data-action="view-profile" data-user-id="${s.to}">
+          <strong>${escapeHtml(userName(s.to))}</strong>
+          ${avatarOrInitials(s.to, userName(s.to), '', 30)}
+        </span>
         <span class="negative" style="margin-left:auto;">Rs. ${s.amount.toFixed(2)}</span>
       </li>
     `).join('');
@@ -714,16 +754,255 @@ function renderBalances({ net, settlements }) {
     const label = amount > 0.01 ? 'is owed' : amount < -0.01 ? 'owes' : 'is settled up';
     return `
       <li class="net-row">
-        ${avatarOrInitials(uid, userName(uid), '', 34)}
-        <div class="net-row-name">
-          ${escapeHtml(userName(uid))}${uid === me?.id ? ' (you)' : ''}
-          <div class="net-row-sub">${label}</div>
-        </div>
+        <span class="user-link" data-action="view-profile" data-user-id="${uid}">
+          ${avatarOrInitials(uid, userName(uid), '', 34)}
+          <div class="net-row-name">
+            ${escapeHtml(userName(uid))}${uid === me?.id ? ' (you)' : ''}
+            <div class="net-row-sub">${label}</div>
+          </div>
+        </span>
         <span class="${cls}">Rs. ${Math.abs(amount).toFixed(2)}</span>
       </li>
     `;
   }).join('');
 }
+
+// ---------- Tasks (create & assign to a roommate, with a due date) ----------
+function formatDueDate(dueDate) {
+  if (!dueDate) return null;
+  const d = new Date(dueDate);
+  if (isNaN(d.getTime())) return null;
+  const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+  const dateLabel = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  if (diffDays === 0) return { label: 'Due today', overdue: false, dueSoon: true };
+  if (diffDays === 1) return { label: 'Due tomorrow', overdue: false, dueSoon: true };
+  if (diffDays < 0) return { label: `Overdue — was due ${dateLabel}`, overdue: true, dueSoon: false };
+  return { label: `Due ${dateLabel}`, overdue: false, dueSoon: false };
+}
+
+function taskRowHtml(task, { showAssignee, interactive = true }) {
+  const due = formatDueDate(task.dueDate);
+  const dueClass = due && !task.done ? (due.overdue ? 'negative' : due.dueSoon ? 'positive' : '') : '';
+  const checkbox = interactive
+    ? `<button type="button" class="task-checkbox ${task.done ? 'checked' : ''}" data-action="toggle-task" title="${task.done ? 'Mark as not done' : 'Mark as done'}">${task.done ? '✓' : ''}</button>`
+    : `<span class="task-checkbox ${task.done ? 'checked' : ''}" aria-hidden="true">${task.done ? '✓' : ''}</span>`;
+  return `
+    <li class="task-row ${task.done ? 'task-done' : ''}" data-task-id="${task.id}">
+      ${checkbox}
+      <div class="task-row-main">
+        <div class="task-row-title">${escapeHtml(task.title)}</div>
+        <div class="task-row-meta">
+          ${showAssignee && task.assignedTo ? `<span class="user-link" data-action="view-profile" data-user-id="${task.assignedTo.id}">${avatarOrInitials(task.assignedTo.id, task.assignedTo.name, 'mini-avatar', 18)}${escapeHtml(task.assignedTo.name)}</span> · ` : ''}
+          ${due ? `<span class="${dueClass}">${due.label}</span>` : 'No due date'}
+        </div>
+      </div>
+      ${interactive ? `<button type="button" class="del-btn" data-action="delete-task" title="Delete task">✕</button>` : ''}
+    </li>
+  `;
+}
+
+function renderHomeTasks() {
+  const list = $('#home-tasks-list');
+  if (!list) return;
+  const mine = tasksCache.filter(t => t.assignedTo && t.assignedTo.id === me?.id);
+  list.innerHTML = mine.length === 0
+    ? '<li class="empty-state">No tasks assigned to you right now. 🎉</li>'
+    : mine.map(t => taskRowHtml(t, { showAssignee: false })).join('');
+}
+
+function renderAllTasks() {
+  const list = $('#all-tasks-list');
+  if (!list) return;
+  list.innerHTML = tasksCache.length === 0
+    ? '<li class="empty-state">No tasks yet — assign the first one above.</li>'
+    : tasksCache.map(t => taskRowHtml(t, { showAssignee: true })).join('');
+}
+
+async function loadTasks() {
+  const data = await api('/api/tasks');
+  tasksCache = data.tasks;
+  renderHomeTasks();
+  renderAllTasks();
+}
+
+function upsertTask(task) {
+  const idx = tasksCache.findIndex(t => t.id === task.id);
+  if (idx === -1) tasksCache.unshift(task); else tasksCache[idx] = task;
+  renderHomeTasks();
+  renderAllTasks();
+}
+
+$('#task-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#task-error').textContent = '';
+  const title = $('#task-title').value;
+  const assignedTo = $('#task-assignee').value;
+  const dueDate = $('#task-due-date').value;
+  try {
+    await api('/api/tasks', { method: 'POST', body: JSON.stringify({ title, assignedTo, dueDate }) });
+    $('#task-form').reset();
+  } catch (err) {
+    $('#task-error').textContent = err.message;
+  }
+});
+
+async function handleTaskListClick(e) {
+  const row = e.target.closest('.task-row');
+  if (!row) return;
+  const taskId = row.dataset.taskId;
+
+  if (e.target.closest('[data-action="toggle-task"]')) {
+    try {
+      await api(`/api/tasks/${taskId}/toggle`, { method: 'POST' });
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
+
+  if (e.target.closest('[data-action="delete-task"]')) {
+    if (!confirm('Delete this task?')) return;
+    try {
+      await api(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+}
+
+$('#home-tasks-list')?.addEventListener('click', handleTaskListClick);
+$('#all-tasks-list')?.addEventListener('click', handleTaskListClick);
+
+// ---------- In-app notifications feed (Home tab) ----------
+function notificationIcon(type) {
+  if (type === 'task') return '✅';
+  if (type === 'expense') return '💸';
+  return '🔔';
+}
+
+function renderNotifications(list) {
+  const box = $('#home-notifications-list');
+  if (!box) return;
+  box.innerHTML = list.length === 0
+    ? '<li class="empty-state">No notifications yet.</li>'
+    : list.map(n => `
+      <li class="notification-row ${n.read ? '' : 'unread'}">
+        <span class="notification-icon">${notificationIcon(n.type)}</span>
+        <div class="notification-row-main">
+          <div class="notification-text">${escapeHtml(n.text)}</div>
+          <div class="notification-time">${timeAgo(n.createdAt)}</div>
+        </div>
+        ${n.read ? '' : '<span class="notification-dot"></span>'}
+      </li>
+    `).join('');
+}
+
+async function loadNotifications() {
+  const data = await api('/api/notifications');
+  notificationsCache = data.notifications;
+  renderNotifications(notificationsCache);
+}
+
+// ---------- View someone's profile (Instagram-style, read-only) ----------
+async function openUserProfile(userId) {
+  if (!userId) return;
+  if (userId === me?.id) {
+    // Viewing yourself opens the same modal as the header avatar, where you
+    // can actually make changes — editing only ever applies to your own profile.
+    $('#profile-btn')?.click();
+    return;
+  }
+
+  openModal('user-profile-modal');
+  const body = $('#user-profile-body');
+  body.innerHTML = '<p class="empty-state">Loading…</p>';
+
+  try {
+    const data = await api(`/api/users/${userId}/profile`);
+    body.innerHTML = renderUserProfileBody(data);
+  } catch (err) {
+    body.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderUserProfileBody(data) {
+  const { user, joinedAt, posts: theirPosts, tasks: theirTasks, balance } = data;
+  const joined = joinedAt
+    ? new Date(joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : '';
+
+  const balanceLine = Math.abs(balance.net) < 0.01
+    ? `${escapeHtml(user.name)} is all settled up.`
+    : balance.net > 0
+      ? `${escapeHtml(user.name)} is owed Rs. ${balance.net.toFixed(2)} overall.`
+      : `${escapeHtml(user.name)} owes Rs. ${Math.abs(balance.net).toFixed(2)} overall.`;
+
+  const settlementsHtml = balance.settlements.length
+    ? `<ul class="settlements-list">${balance.settlements.map(s => `
+        <li class="settlement-row">
+          <span class="user-link" data-action="view-profile" data-user-id="${s.from.id}">
+            ${avatarOrInitials(s.from.id, s.from.name, '', 26)}
+            <strong>${escapeHtml(s.from.name)}</strong>
+          </span>
+          <span class="settlement-arrow">→</span>
+          <span class="user-link" data-action="view-profile" data-user-id="${s.to.id}">
+            <strong>${escapeHtml(s.to.name)}</strong>
+            ${avatarOrInitials(s.to.id, s.to.name, '', 26)}
+          </span>
+          <span class="negative" style="margin-left:auto;">Rs. ${s.amount.toFixed(2)}</span>
+        </li>
+      `).join('')}</ul>`
+    : '';
+
+  const tasksHtml = theirTasks.length
+    ? theirTasks.map(t => taskRowHtml(t, { showAssignee: false, interactive: false })).join('')
+    : '<li class="empty-state">No tasks assigned.</li>';
+
+  const postsHtml = theirPosts.length
+    ? `<div class="profile-posts-grid">${theirPosts.map(p => `
+        <div class="profile-post-tile">
+          ${p.media
+            ? (p.media.kind === 'video'
+                ? `<video src="${p.media.url}" muted></video>`
+                : `<img src="${p.media.url}" alt="" />`)
+            : `<div class="profile-post-tile-text">${escapeHtml(p.caption || '').slice(0, 120)}</div>`}
+          <div class="profile-post-tile-overlay">❤️ ${p.likeCount} · 💬 ${p.comments.length}</div>
+        </div>
+      `).join('')}</div>`
+    : '<p class="empty-state">No posts yet.</p>';
+
+  return `
+    <div class="profile-avatar-row">
+      <div class="profile-avatar-preview">${avatarOrInitials(user.id, user.name, '', 84)}</div>
+      <div style="text-align:center;">
+        <div style="font-weight:700;font-size:17px;">${escapeHtml(user.name)}</div>
+        ${joined ? `<div style="color:var(--muted);font-size:12.5px;margin-top:2px;">Joined ${joined}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="modal-divider"></div>
+    <div class="field-label">Feed</div>
+    ${postsHtml}
+
+    <div class="modal-divider"></div>
+    <div class="field-label">Balance</div>
+    <p class="modal-sub" style="margin-bottom:6px;">${balanceLine}</p>
+    ${settlementsHtml}
+
+    <div class="modal-divider"></div>
+    <div class="field-label">Tasks</div>
+    <ul class="task-list">${tasksHtml}</ul>
+  `;
+}
+
+// Any element anywhere in the app marked up with data-action="view-profile"
+// and a data-user-id opens that person's profile — chat sender names, feed
+// post headers, balances rows, and task assignees are all wired this way.
+document.addEventListener('click', (e) => {
+  const trigger = e.target.closest('[data-action="view-profile"]');
+  if (trigger && trigger.dataset.userId) openUserProfile(trigger.dataset.userId);
+});
 
 // ---------- Chat ----------
 async function loadMessages() {
@@ -754,7 +1033,7 @@ function renderMessage(m) {
     <div class="chat-msg-row ${mine ? 'mine' : ''}">
       <div class="chat-msg">
         <div class="bubble">
-          ${mine ? '' : `<div class="sender" style="color:${colorForName(name)};">${escapeHtml(name)}</div>`}
+          ${mine ? '' : `<div class="sender" data-action="view-profile" data-user-id="${m.user_id}" style="color:${colorForName(name)};">${escapeHtml(name)}</div>`}
           ${renderAttachment(m.attachment)}
           ${m.text ? `<span class="msg-text">${escapeHtml(m.text)}</span>` : ''}
           <span class="msg-time">${time}</span>
@@ -867,12 +1146,36 @@ function connectSocket() {
     if (idx !== -1) users[idx] = u; else users.push(u);
   });
 
+  // A new roommate signed up — pick them up in split checkboxes / task assignees
+  // without needing everyone else to reload.
+  socket.on('user:new', (u) => {
+    if (users.some(x => x.id === u.id)) return;
+    users.push(u);
+    renderUserPickers();
+  });
+
   socket.on('expense:new', async () => {
     await loadExpenses();
   });
 
   socket.on('expense:deleted', async () => {
     await loadExpenses();
+  });
+
+  // ---------- Notifications ----------
+  socket.on('notification:new', ({ userId, notification }) => {
+    if (userId !== me?.id) return;
+    notificationsCache.unshift(notification);
+    renderNotifications(notificationsCache);
+  });
+
+  // ---------- Tasks ----------
+  socket.on('task:new', upsertTask);
+  socket.on('task:updated', upsertTask);
+  socket.on('task:deleted', ({ id }) => {
+    tasksCache = tasksCache.filter(t => t.id !== id);
+    renderHomeTasks();
+    renderAllTasks();
   });
 
   // ---------- Feed ----------
@@ -1083,11 +1386,13 @@ function renderPostCard(post) {
   return `
     <div class="post-card" data-post-id="${post.id}">
       <div class="post-card-header">
-        ${avatarOrInitials(post.user_id, post.user_name, '', 38)}
-        <div class="post-card-header-info">
-          <div class="post-card-header-name">${escapeHtml(post.user_name)}${isMine ? ' (you)' : ''}</div>
-          <div class="post-card-header-time">${timeAgo(post.created_at)}</div>
-        </div>
+        <span class="post-card-header-clickable" data-action="view-profile" data-user-id="${post.user_id}">
+          ${avatarOrInitials(post.user_id, post.user_name, '', 38)}
+          <div class="post-card-header-info">
+            <div class="post-card-header-name">${escapeHtml(post.user_name)}${isMine ? ' (you)' : ''}</div>
+            <div class="post-card-header-time">${timeAgo(post.created_at)}</div>
+          </div>
+        </span>
         ${isMine ? `<button class="post-delete-btn" data-action="delete-post" title="Delete post">🗑️</button>` : ''}
       </div>
       ${post.caption ? `<div class="post-card-caption">${escapeHtml(post.caption)}</div>` : ''}
