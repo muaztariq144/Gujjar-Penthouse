@@ -4,8 +4,8 @@
   "description": "Shared expenses and chat for Gujjar Penthouse",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#efeae2",
-  "theme_color": "#005e54",
+  "background_color": "#f5f5f7",
+  "theme_color": "#121214",
   "orientation": "portrait",
   "icons": [
     {
