@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <title>Gujjar Penthouse</title>
 <link rel="stylesheet" href="style.css" />
 <link rel="manifest" href="/manifest.json" />
@@ -244,15 +244,6 @@
       </div>
 
       <div id="event-banner" class="event-banner hidden"></div>
-
-      <div class="card acorn-card">
-        <div class="card-header-row">
-          <h2>🐿️ Acorn Hunt</h2>
-          <button type="button" id="acorn-info-btn" class="text-btn" title="How to play">How to play</button>
-        </div>
-        <p id="acorn-status-line" class="acorn-status-line">Loading…</p>
-        <ol id="acorn-leaderboard" class="acorn-leaderboard"></ol>
-      </div>
 
       <div class="card">
         <h2>Your tasks</h2>
@@ -517,8 +508,6 @@
     <div class="story-viewer-zone story-viewer-zone-prev" id="story-viewer-prev"></div>
     <div class="story-viewer-zone story-viewer-zone-next" id="story-viewer-next"></div>
   </div>
-
-  <div id="toast-container" class="toast-container"></div>
 </div>
 
 <!-- ===== MEMBERS MODAL (opened by tapping the logo/name) ===== -->
@@ -529,22 +518,6 @@
       <button type="button" class="modal-close-btn" data-close-modal="members-modal">✕</button>
     </div>
     <ul id="members-list" class="members-list"></ul>
-  </div>
-</div>
-
-<!-- ===== ACORN HUNT "HOW TO PLAY" MODAL ===== -->
-<div id="acorn-info-modal" class="modal-overlay hidden">
-  <div class="modal-card">
-    <div class="modal-header">
-      <h2>🐿️ Acorn Hunt</h2>
-      <button type="button" class="modal-close-btn" data-close-modal="acorn-info-modal">✕</button>
-    </div>
-    <div class="acorn-info-body">
-      <p>An acorn is hiding somewhere in the app right now — on a post, a task, someone's profile, or a chat message.</p>
-      <p><strong>Long-press</strong> (press and hold for a moment) on any post, task, profile avatar, or chat message to search it.</p>
-      <p>It's never in the same place for long — the longer it goes unfound, the more often it scurries off somewhere new.</p>
-      <p>Whoever catches it wins that round, and a fresh acorn hides a few minutes later.</p>
-    </div>
   </div>
 </div>
 
