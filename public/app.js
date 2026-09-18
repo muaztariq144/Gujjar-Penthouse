@@ -3,9 +3,9 @@ let token = localStorage.getItem('gp_token') || null;
 let me = null;
 let users = [];
 let socket = null;
-let latestBalances = { net: {}, settlements: [] };
 let tasksCache = [];
 let notificationsCache = [];
+let pollsCache = [];
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -253,18 +253,19 @@ async function startApp() {
   renderProfileButton();
 
   await loadUsers();
-  await loadExpenses();
-  await loadBalances();
   await loadMessages();
   await loadFeed();
   await loadTasks();
   await loadNotifications();
+  await loadPolls();
   connectSocket();
   setupNotifications();
   maybeAutoJoinCall();
   setupChatMediaInput();
   setupPostMediaInput();
   setupProfileModal();
+  setupPollModal();
+  setupTypingIndicator();
 }
 
 function renderProfileButton() {
@@ -493,14 +494,6 @@ async function tryAutoLogin() {
 function renderUserPickers() {
   const sub = $('#header-sub');
   if (sub) sub.textContent = `${users.length} roommate${users.length === 1 ? '' : 's'}`;
-  const box = $('#split-checkboxes');
-  box.innerHTML = users.map(u => `
-    <label>
-      <input type="checkbox" value="${u.id}" checked />
-      ${avatarOrInitials(u.id, u.name, 'mini-avatar', 20)}
-      ${escapeHtml(u.name)}
-    </label>
-  `).join('');
 
   const assigneeSelect = $('#task-assignee');
   if (assigneeSelect) {
@@ -560,212 +553,173 @@ function avatarOrInitials(id, name, extraClass = '', size) {
   return avatarHtml(name, extraClass, size);
 }
 
-// ---------- Expenses ----------
-$('#expense-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  $('#expense-error').textContent = '';
-  const description = $('#exp-description').value;
-  const amount = parseFloat($('#exp-amount').value);
-  const splitAmong = Array.from($$('#split-checkboxes input:checked')).map(i => i.value);
-
-  if (splitAmong.length === 0) {
-    $('#expense-error').textContent = 'Pick at least one person to split with.';
-    return;
-  }
-
-  try {
-    await api('/api/expenses', {
-      method: 'POST',
-      body: JSON.stringify({ description, amount, splitAmong }),
-    });
-    $('#exp-description').value = '';
-    $('#exp-amount').value = '';
-    await loadExpenses();
-  } catch (err) {
-    $('#expense-error').textContent = err.message;
-  }
-});
-
-async function loadExpenses() {
-  const data = await api('/api/expenses');
-  renderExpenses(data.expenses);
+// ---------- Polls (any member can start a referendum with a time limit) ----------
+function pollTimeLeftLabel(expiresAt) {
+  const diff = expiresAt - Date.now();
+  if (diff <= 0) return 'Voting closed';
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `${mins}m left`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h left`;
+  const days = Math.round(hours / 24);
+  return `${days}d left`;
 }
 
-const EXPENSE_EMOJI_RULES = [
-  [/groc|market|vegetabl|fruit/i, '🛒'],
-  [/electric|wapda|utility|utilit|gas bill|water bill/i, '💡'],
-  [/internet|wifi|broadband/i, '📶'],
-  [/rent/i, '🏠'],
-  [/food|dinner|lunch|breakfast|restaurant|order|takeaway|zomato|foodpanda/i, '🍔'],
-  [/cleaning|maid|detergent/i, '🧹'],
-  [/gas cylinder|lpg/i, '🔥'],
-  [/fuel|petrol|diesel/i, '⛽'],
-  [/medic|pharmacy|doctor/i, '💊'],
-];
-
-function emojiForExpense(description) {
-  for (const [pattern, emoji] of EXPENSE_EMOJI_RULES) {
-    if (pattern.test(description)) return emoji;
-  }
-  return '💵';
-}
-
-function dayHeading(timestamp) {
-  const d = new Date(timestamp);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  const sameDay = (a, b) => a.toDateString() === b.toDateString();
-  if (sameDay(d, today)) return 'Today';
-  if (sameDay(d, yesterday)) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
-}
-
-function renderExpenses(expenses) {
-  const list = $('#expense-list');
-  if (expenses.length === 0) {
-    list.innerHTML = '<li class="empty-state">No expenses yet — add the first one above. 🎉</li>';
-    return;
-  }
-
-  let lastHeading = null;
-  const rows = [];
-
-  for (const e of expenses) {
-    const heading = dayHeading(e.created_at);
-    if (heading !== lastHeading) {
-      rows.push(`<li class="expense-day-heading">${escapeHtml(heading)}</li>`);
-      lastHeading = heading;
-    }
-
-    const iAmPayer = e.paid_by === me.id;
-    const iAmInSplit = e.split_among.includes(me.id);
-    const myShare = iAmInSplit ? e.amount / e.split_among.length : 0;
-
-    let shareLine = '';
-    let shareClass = 'neutral';
-    if (iAmPayer) {
-      const lentToOthers = e.amount - myShare;
-      if (lentToOthers > 0.01) {
-        shareLine = `you lent Rs. ${lentToOthers.toFixed(2)}`;
-        shareClass = 'positive';
-      } else {
-        shareLine = 'just for you';
-      }
-    } else if (iAmInSplit) {
-      shareLine = `you owe Rs. ${myShare.toFixed(2)}`;
-      shareClass = 'negative';
-    } else {
-      shareLine = 'not involved';
-    }
-
-    const time = new Date(e.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-    rows.push(`
-      <li class="expense-row">
-        <div class="expense-icon">${emojiForExpense(e.description)}</div>
-        <div class="expense-row-main">
-          <div class="expense-row-title">${escapeHtml(e.description)}</div>
-          <div class="expense-row-meta">${iAmPayer ? 'You' : escapeHtml(userName(e.paid_by))} paid · split ${e.split_among.length} way${e.split_among.length === 1 ? '' : 's'} · ${time}</div>
-        </div>
-        <div class="expense-row-amounts">
-          <div class="expense-row-total">Rs. ${e.amount.toFixed(2)}</div>
-          <div class="expense-row-share ${shareClass}">${shareLine}</div>
-        </div>
-        <button class="del-btn" data-id="${e.id}">✕</button>
-      </li>
-    `);
-  }
-
-  list.innerHTML = rows.join('');
-
-  list.querySelectorAll('.del-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await api(`/api/expenses/${btn.dataset.id}`, { method: 'DELETE' });
-      await loadExpenses();
-    });
-  });
-}
-
-// ---------- Balances ----------
-async function loadBalances() {
-  const data = await api('/api/balances');
-  renderBalances(data);
-}
-
-// Builds the one-line "You owe / are owed / are settled up" summary text
-// shared by the Balances page banner and the Home tab.
-function myBalanceLineText(net) {
-  const myNet = net[me?.id] ?? 0;
-  if (Math.abs(myNet) < 0.01) return "You're all settled up.";
-  if (myNet > 0) return `You are owed Rs. ${myNet.toFixed(2)} overall.`;
-  return `You owe Rs. ${Math.abs(myNet).toFixed(2)} overall.`;
-}
-
-function renderBalances({ net, settlements }) {
-  latestBalances = { net, settlements };
-
-  // ---- Summary banner: how the current user personally stands ----
-  const myNet = net[me?.id] ?? 0;
-  const bannerLabel = $('#balance-banner-label');
-  const bannerAmount = $('#balance-banner-amount');
-  if (bannerLabel && bannerAmount) {
-    if (Math.abs(myNet) < 0.01) {
-      bannerLabel.textContent = "You're all settled up";
-      bannerAmount.textContent = 'Rs. 0.00';
-    } else if (myNet > 0) {
-      bannerLabel.textContent = 'You are owed overall';
-      bannerAmount.textContent = `Rs. ${myNet.toFixed(2)}`;
-    } else {
-      bannerLabel.textContent = 'You owe overall';
-      bannerAmount.textContent = `Rs. ${Math.abs(myNet).toFixed(2)}`;
-    }
-  }
-
-  // ---- Home tab single-line balance summary ----
-  const homeBalanceText = $('#home-balance-text');
-  if (homeBalanceText) homeBalanceText.textContent = myBalanceLineText(net);
-
-  // ---- Who owes whom ----
-  const settlementsList = $('#settlements-list');
-  if (settlements.length === 0) {
-    settlementsList.innerHTML = '<li class="empty-state">Everyone is settled up! 🎉</li>';
-  } else {
-    settlementsList.innerHTML = settlements.map(s => `
-      <li class="settlement-row">
-        <span class="user-link" data-action="view-profile" data-user-id="${s.from}">
-          ${avatarOrInitials(s.from, userName(s.from), '', 30)}
-          <strong>${escapeHtml(userName(s.from))}</strong>
-        </span>
-        <span class="settlement-arrow">→</span>
-        <span class="user-link" data-action="view-profile" data-user-id="${s.to}">
-          <strong>${escapeHtml(userName(s.to))}</strong>
-          ${avatarOrInitials(s.to, userName(s.to), '', 30)}
-        </span>
-        <span class="negative" style="margin-left:auto;">Rs. ${s.amount.toFixed(2)}</span>
-      </li>
-    `).join('');
-  }
-
-  // ---- Net balance per person ----
-  const netList = $('#net-list');
-  netList.innerHTML = Object.entries(net).map(([uid, amount]) => {
-    const cls = amount > 0.01 ? 'positive' : amount < -0.01 ? 'negative' : '';
-    const label = amount > 0.01 ? 'is owed' : amount < -0.01 ? 'owes' : 'is settled up';
+function pollCardHtml(poll) {
+  const closed = poll.closed;
+  const iVoted = poll.myVote !== null && poll.myVote !== undefined;
+  const optionsHtml = poll.options.map(opt => {
+    const isMyVote = poll.myVote === opt.idx;
+    const showResults = closed || iVoted;
     return `
-      <li class="net-row">
-        <span class="user-link" data-action="view-profile" data-user-id="${uid}">
-          ${avatarOrInitials(uid, userName(uid), '', 34)}
-          <div class="net-row-name">
-            ${escapeHtml(userName(uid))}${uid === me?.id ? ' (you)' : ''}
-            <div class="net-row-sub">${label}</div>
-          </div>
-        </span>
-        <span class="${cls}">Rs. ${Math.abs(amount).toFixed(2)}</span>
+      <li class="poll-option ${isMyVote ? 'my-vote' : ''}" data-action="vote-poll" data-poll-id="${poll.id}" data-option-idx="${opt.idx}">
+        ${showResults ? `<div class="poll-option-bar" style="width:${opt.percent}%;"></div>` : ''}
+        <div class="poll-option-row">
+          <span class="poll-option-text">${isMyVote ? '✓ ' : ''}${escapeHtml(opt.text)}</span>
+          ${showResults ? `<span class="poll-option-pct">${opt.percent}% (${opt.voteCount})</span>` : ''}
+        </div>
       </li>
     `;
   }).join('');
+
+  return `
+    <li class="poll-card ${closed ? 'poll-closed' : ''}" data-poll-id="${poll.id}">
+      <div class="poll-card-header">
+        <span class="user-link" data-action="view-profile" data-user-id="${poll.createdBy?.id || ''}">
+          ${poll.createdBy ? avatarOrInitials(poll.createdBy.id, poll.createdBy.name, 'mini-avatar', 20) : ''}
+          <span class="poll-card-author">${poll.createdBy ? escapeHtml(poll.createdBy.name) : 'Someone'}</span>
+        </span>
+        <span class="poll-card-status ${closed ? 'negative' : 'positive'}">${closed ? 'Closed' : pollTimeLeftLabel(poll.expiresAt)}</span>
+      </div>
+      <div class="poll-card-question">${escapeHtml(poll.question)}</div>
+      <ul class="poll-options">${optionsHtml}</ul>
+      <div class="poll-card-footer">${poll.totalVotes} vote${poll.totalVotes === 1 ? '' : 's'}${poll.createdBy?.id === me?.id ? ` · <button type="button" class="link-btn" data-action="delete-poll" data-poll-id="${poll.id}">Delete</button>` : ''}</div>
+    </li>
+  `;
 }
+
+function renderPolls() {
+  const list = $('#polls-list');
+  if (!list) return;
+  list.innerHTML = pollsCache.length === 0
+    ? '<li class="empty-state">No polls yet — start one above. 🗳️</li>'
+    : pollsCache.map(pollCardHtml).join('');
+}
+
+async function loadPolls() {
+  const data = await api('/api/polls');
+  pollsCache = data.polls;
+  renderPolls();
+}
+
+function upsertPoll(poll) {
+  const idx = pollsCache.findIndex(p => p.id === poll.id);
+  if (idx === -1) pollsCache.unshift(poll); else pollsCache[idx] = poll;
+  renderPolls();
+}
+
+function applyPollVoteUpdate({ id, options, totalVotes }) {
+  const poll = pollsCache.find(p => p.id === id);
+  if (!poll) return;
+  for (const o of options) {
+    const target = poll.options.find(x => x.idx === o.idx);
+    if (target) {
+      target.voteCount = o.voteCount;
+      target.percent = totalVotes ? Math.round((o.voteCount / totalVotes) * 100) : 0;
+    }
+  }
+  poll.totalVotes = totalVotes;
+  renderPolls();
+}
+
+function setupPollModal() {
+  const newPollBtn = $('#new-poll-btn');
+  if (newPollBtn && !newPollBtn.dataset.wired) {
+    newPollBtn.dataset.wired = '1';
+    newPollBtn.addEventListener('click', () => {
+      $('#new-poll-form').reset();
+      $('#poll-error').textContent = '';
+      const optionsList = $('#poll-options-list');
+      optionsList.innerHTML = `
+        <input type="text" class="poll-option-input" placeholder="Option 1" required maxlength="80" />
+        <input type="text" class="poll-option-input" placeholder="Option 2" required maxlength="80" />
+      `;
+      openModal('new-poll-modal');
+      $('#poll-question-input')?.focus();
+    });
+  }
+
+  const addOptionBtn = $('#poll-add-option-btn');
+  if (addOptionBtn && !addOptionBtn.dataset.wired) {
+    addOptionBtn.dataset.wired = '1';
+    addOptionBtn.addEventListener('click', () => {
+      const optionsList = $('#poll-options-list');
+      const count = optionsList.querySelectorAll('.poll-option-input').length;
+      if (count >= 8) return;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'poll-option-input';
+      input.placeholder = `Option ${count + 1}`;
+      input.maxLength = 80;
+      optionsList.appendChild(input);
+      input.focus();
+    });
+  }
+
+  const pollForm = $('#new-poll-form');
+  if (pollForm && !pollForm.dataset.wired) {
+    pollForm.dataset.wired = '1';
+    pollForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#poll-error').textContent = '';
+      const question = $('#poll-question-input').value.trim();
+      const options = Array.from($$('#poll-options-list .poll-option-input')).map(i => i.value.trim()).filter(Boolean);
+      const durationMinutes = Number($('#poll-duration-input').value);
+      try {
+        await api('/api/polls', { method: 'POST', body: JSON.stringify({ question, options, durationMinutes }) });
+        closeModal('new-poll-modal');
+      } catch (err) {
+        $('#poll-error').textContent = err.message;
+      }
+    });
+  }
+}
+
+const pollsListEl = $('#polls-list');
+if (pollsListEl) {
+  pollsListEl.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('[data-action="delete-poll"]');
+    if (deleteBtn) {
+      if (!confirm('Delete this poll?')) return;
+      try {
+        await api(`/api/polls/${deleteBtn.dataset.pollId}`, { method: 'DELETE' });
+      } catch (err) {
+        alert(err.message);
+      }
+      return;
+    }
+
+    const option = e.target.closest('[data-action="vote-poll"]');
+    if (option) {
+      const poll = pollsCache.find(p => p.id === option.dataset.pollId);
+      if (!poll || poll.closed) return;
+      try {
+        const { poll: updated } = await api(`/api/polls/${option.dataset.pollId}/vote`, {
+          method: 'POST',
+          body: JSON.stringify({ optionIdx: Number(option.dataset.optionIdx) }),
+        });
+        const idx = pollsCache.findIndex(p => p.id === updated.id);
+        if (idx !== -1) pollsCache[idx] = updated;
+        renderPolls();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+  });
+}
+
+// Poll cards' "time left" labels drift as time passes — refresh them periodically.
+setInterval(() => { if (pollsCache.length) renderPolls(); }, 60000);
 
 // ---------- Tasks (create & assign to a roommate, with a due date) ----------
 function formatDueDate(dueDate) {
@@ -877,7 +831,7 @@ $('#all-tasks-list')?.addEventListener('click', handleTaskListClick);
 // ---------- In-app notifications feed (Home tab) ----------
 function notificationIcon(type) {
   if (type === 'task') return '✅';
-  if (type === 'expense') return '💸';
+  if (type === 'poll') return '🗳️';
   if (type === 'like') return '❤️';
   if (type === 'comment') return '💬';
   if (type === 'post') return '📸';
@@ -930,32 +884,9 @@ async function openUserProfile(userId) {
 }
 
 function renderUserProfileBody(data) {
-  const { user, joinedAt, posts: theirPosts, tasks: theirTasks, balance } = data;
+  const { user, joinedAt, posts: theirPosts, tasks: theirTasks } = data;
   const joined = joinedAt
     ? new Date(joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-    : '';
-
-  const balanceLine = Math.abs(balance.net) < 0.01
-    ? `${escapeHtml(user.name)} is all settled up.`
-    : balance.net > 0
-      ? `${escapeHtml(user.name)} is owed Rs. ${balance.net.toFixed(2)} overall.`
-      : `${escapeHtml(user.name)} owes Rs. ${Math.abs(balance.net).toFixed(2)} overall.`;
-
-  const settlementsHtml = balance.settlements.length
-    ? `<ul class="settlements-list">${balance.settlements.map(s => `
-        <li class="settlement-row">
-          <span class="user-link" data-action="view-profile" data-user-id="${s.from.id}">
-            ${avatarOrInitials(s.from.id, s.from.name, '', 26)}
-            <strong>${escapeHtml(s.from.name)}</strong>
-          </span>
-          <span class="settlement-arrow">→</span>
-          <span class="user-link" data-action="view-profile" data-user-id="${s.to.id}">
-            <strong>${escapeHtml(s.to.name)}</strong>
-            ${avatarOrInitials(s.to.id, s.to.name, '', 26)}
-          </span>
-          <span class="negative" style="margin-left:auto;">Rs. ${s.amount.toFixed(2)}</span>
-        </li>
-      `).join('')}</ul>`
     : '';
 
   const tasksHtml = theirTasks.length
@@ -989,11 +920,6 @@ function renderUserProfileBody(data) {
     ${postsHtml}
 
     <div class="modal-divider"></div>
-    <div class="field-label">Balance</div>
-    <p class="modal-sub" style="margin-bottom:6px;">${balanceLine}</p>
-    ${settlementsHtml}
-
-    <div class="modal-divider"></div>
     <div class="field-label">Tasks</div>
     <ul class="task-list">${tasksHtml}</ul>
   `;
@@ -1001,7 +927,7 @@ function renderUserProfileBody(data) {
 
 // Any element anywhere in the app marked up with data-action="view-profile"
 // and a data-user-id opens that person's profile — chat sender names, feed
-// post headers, balances rows, and task assignees are all wired this way.
+// post headers, poll authors, and task assignees are all wired this way.
 document.addEventListener('click', (e) => {
   const trigger = e.target.closest('[data-action="view-profile"]');
   if (trigger && trigger.dataset.userId) openUserProfile(trigger.dataset.userId);
@@ -1231,6 +1157,61 @@ if (chatMessagesEl) {
   chatMessagesEl.addEventListener('pointerleave', endChatDrag);
 }
 
+// ---------- Typing indicator (WhatsApp-style, with mini avatars) ----------
+let typingStartSentAt = 0;
+let typingStopTimer = null;
+
+function setupTypingIndicator() {
+  const input = $('#chat-input');
+  if (!input || input.dataset.typingWired) return;
+  input.dataset.typingWired = '1';
+
+  const sendStop = () => {
+    if (typingStopTimer) { clearTimeout(typingStopTimer); typingStopTimer = null; }
+    if (typingStartSentAt) {
+      socket?.emit('chat:typing-stop');
+      typingStartSentAt = 0;
+    }
+  };
+
+  input.addEventListener('input', () => {
+    if (!socket) return;
+    if (!input.value.trim()) { sendStop(); return; }
+    const now = Date.now();
+    // Throttle "start" pings to at most once every ~2.5s while someone keeps typing.
+    if (!typingStartSentAt || now - typingStartSentAt > 2500) {
+      socket.emit('chat:typing-start');
+      typingStartSentAt = now;
+    }
+    if (typingStopTimer) clearTimeout(typingStopTimer);
+    // Auto-clear "typing" if they pause for a couple of seconds without sending.
+    typingStopTimer = setTimeout(sendStop, 2000);
+  });
+
+  input.addEventListener('blur', sendStop);
+  $('#chat-form')?.addEventListener('submit', sendStop);
+}
+
+function renderTypingIndicator(typingList) {
+  const box = $('#typing-indicator');
+  if (!box) return;
+  const others = (typingList || []).filter(t => t.userId !== me?.id);
+  if (others.length === 0) {
+    box.classList.add('hidden');
+    return;
+  }
+  const avatarsBox = $('#typing-indicator-avatars');
+  avatarsBox.innerHTML = others.slice(0, 4).map(t =>
+    avatarOrInitials(t.userId, t.userName || 'Someone', 'typing-avatar', 20)
+  ).join('');
+  box.title = others.length === 1
+    ? `${others[0].userName || 'Someone'} is typing…`
+    : `${others.map(o => o.userName || 'Someone').join(', ')} are typing…`;
+  box.classList.remove('hidden');
+  const messagesBox = $('#chat-messages');
+  if (messagesBox) messagesBox.scrollTop = messagesBox.scrollHeight;
+}
+
 $('#chat-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $('#chat-input');
@@ -1266,8 +1247,6 @@ function connectSocket() {
     box.scrollTop = box.scrollHeight;
   });
 
-  socket.on('balances:update', renderBalances);
-
   socket.on('user:updated', (u) => {
     const idx = users.findIndex(x => x.id === u.id);
     if (idx !== -1) users[idx] = u; else users.push(u);
@@ -1281,13 +1260,16 @@ function connectSocket() {
     renderUserPickers();
   });
 
-  socket.on('expense:new', async () => {
-    await loadExpenses();
+  // ---------- Polls ----------
+  socket.on('poll:new', upsertPoll);
+  socket.on('poll:updated', applyPollVoteUpdate);
+  socket.on('poll:deleted', ({ id }) => {
+    pollsCache = pollsCache.filter(p => p.id !== id);
+    renderPolls();
   });
 
-  socket.on('expense:deleted', async () => {
-    await loadExpenses();
-  });
+  // ---------- Typing indicator ----------
+  socket.on('chat:typing-users', renderTypingIndicator);
 
   // ---------- Notifications ----------
   socket.on('notification:new', ({ userId, notification }) => {
