@@ -166,6 +166,14 @@ function addNotification(userId, type, text) {
   });
 }
 
+// Short, human quote of a caption/comment for inside a notification line —
+// so notifications say specifically what happened, not just that "something" did.
+function quoteSnippet(text, maxLen = 60) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return '';
+  return trimmed.length > maxLen ? `"${trimmed.slice(0, maxLen - 1)}…"` : `"${trimmed}"`;
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -718,6 +726,13 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     created_at: Date.now(),
   };
   db.posts.push(post);
+
+  const captionSnippet = quoteSnippet(trimmedCaption);
+  const postKind = cleanMedia?.kind === 'video' ? 'a video' : cleanMedia ? 'a photo' : 'a post';
+  for (const u of db.users) {
+    if (u.id === req.user.id) continue;
+    addNotification(u.id, 'post', `${req.user.name} shared ${postKind}${captionSnippet ? `: ${captionSnippet}` : ''}`);
+  }
   save();
 
   const publicVersion = publicPost(post, req.user.id);
@@ -751,6 +766,11 @@ app.post('/api/posts/:id/like', authMiddleware, (req, res) => {
   const nowLiked = idx === -1;
   if (nowLiked) post.likes.push(req.user.id);
   else post.likes.splice(idx, 1);
+
+  if (nowLiked && post.user_id !== req.user.id) {
+    const captionSnippet = quoteSnippet(post.caption);
+    addNotification(post.user_id, 'like', `${req.user.name} liked your post${captionSnippet ? `: ${captionSnippet}` : ''}`);
+  }
   save();
 
   io.emit('post:like-update', { id: post.id, likes: post.likes });
@@ -782,6 +802,10 @@ app.post('/api/posts/:id/comments', authMiddleware, (req, res) => {
     created_at: Date.now(),
   };
   post.comments.push(comment);
+
+  if (post.user_id !== req.user.id) {
+    addNotification(post.user_id, 'comment', `${req.user.name} commented on your post: ${quoteSnippet(comment.text)}`);
+  }
   save();
 
   io.emit('post:comment-new', { postId: post.id, comment });
@@ -834,12 +858,30 @@ io.on('connection', (socket) => {
     const trimmedText = typeof text === 'string' ? text.trim() : '';
     if (!trimmedText && !attachment) return; // nothing to send
 
+    // Swipe-to-reply: snapshot the quoted message's text/sender at send time,
+    // so the quote still reads correctly even if the original is ever deleted.
+    let replyTo = null;
+    const replyToId = isObject && typeof payload.replyTo === 'string' ? payload.replyTo : null;
+    if (replyToId) {
+      const original = db.messages.find(m => m.id === replyToId);
+      if (original) {
+        replyTo = {
+          id: original.id,
+          userId: original.user_id,
+          userName: original.user_name,
+          text: original.text || '',
+          attachmentKind: original.attachment ? original.attachment.kind : null,
+        };
+      }
+    }
+
     const message = {
       id: uuid(),
       user_id: socket.user.id,
       user_name: socket.user.name,
       text: trimmedText,
       attachment,
+      reply_to: replyTo,
       created_at: Date.now(),
     };
     db.messages.push(message);
