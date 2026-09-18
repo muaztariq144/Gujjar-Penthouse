@@ -699,39 +699,41 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .who button.text-btn:hover { background: rgba(255, 255, 255, 0.2); }
 
+/* ---------- Bottom nav bar (Instagram-style: fixed to the bottom of the
+   screen, icon-only, evenly spaced, outline icons that fill solid when
+   active) ---------- */
 .tabbar {
   display: flex;
-  background: var(--bg-elevated);
-  position: sticky;
-  top: 62px;
-  z-index: 19;
-  padding: 6px 8px;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-xs);
+  align-items: center;
+  background: var(--header-bg);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .page-btn {
   flex: 1;
   background: transparent;
-  color: var(--muted);
-  border-radius: var(--radius-sm);
-  padding: 8px 4px 7px;
-  font-weight: 600;
-  font-size: 11.5px;
+  color: var(--header-text-muted);
+  border-radius: var(--radius-md);
+  padding: 8px 4px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 3px;
-  white-space: nowrap;
-  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  justify-content: center;
+  transition: color 0.18s var(--ease), transform 0.12s var(--ease-spring);
   position: relative;
 }
 
 .tab-badge {
   position: absolute;
   top: 2px;
-  right: calc(50% - 22px);
+  right: calc(50% - 20px);
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -745,48 +747,66 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   justify-content: center;
   line-height: 1;
   animation: gp-pop-in 0.2s var(--ease);
-  box-shadow: 0 0 0 2px var(--bg-elevated);
+  box-shadow: 0 0 0 2px var(--header-bg);
 }
 
-.page-btn-icon {
-  font-size: 19px;
-  line-height: 1;
-  filter: grayscale(0.65);
-  opacity: 0.7;
-  transition: filter 0.18s var(--ease), opacity 0.18s var(--ease), transform 0.18s var(--ease-spring);
+.tab-icon-wrap { display: inline-flex; width: 26px; height: 26px; }
+.tab-icon { display: inline-flex; width: 26px; height: 26px; }
+.tab-icon svg { width: 100%; height: 100%; display: block; }
+.tab-icon-filled { display: none; }
+
+.page-btn:hover, .page-btn:focus-visible {
+  color: var(--header-text);
+  background: transparent;
+  box-shadow: none;
+  transform: none;
 }
+.page-btn:active { transform: scale(0.88); }
 
-.page-btn-label { letter-spacing: -0.01em; }
+.page-btn.active { color: var(--text); }
+.page-btn.active .tab-icon-outline { display: none; }
+.page-btn.active .tab-icon-filled { display: inline-flex; }
 
-.page-btn:hover { background: var(--bg-subtle); color: var(--text); }
-.page-btn:active { transform: scale(0.96); }
-
-.page-btn.active {
-  color: var(--accent);
-  background: var(--accent-soft);
+.tab-add-btn, .tab-profile-btn {
+  flex: 1;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px;
+  color: var(--header-text-muted);
+  transition: transform 0.12s var(--ease-spring), border-color 0.15s var(--ease);
 }
-
-.page-btn.active::after {
-  content: '';
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  width: 18px;
-  height: 3px;
-  border-radius: var(--radius-full);
-  background: var(--brand-gradient);
-  transform: translateX(-50%);
-  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
+.tab-add-btn svg { width: 26px; height: 26px; display: block; }
+.tab-add-btn:hover, .tab-add-btn:focus-visible,
+.tab-profile-btn:hover, .tab-profile-btn:focus-visible {
+  color: var(--header-text);
+  background: transparent;
+  box-shadow: none;
+  transform: none;
 }
+.tab-add-btn:active, .tab-profile-btn:active { transform: scale(0.88); }
 
-.page-btn.active .page-btn-icon {
-  filter: grayscale(0);
-  opacity: 1;
-  transform: scale(1.08);
+.tab-profile-btn {
+  padding: 6px;
+  border-radius: 50%;
 }
+.tab-profile-btn .avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+}
+.tab-profile-btn:hover .avatar { border-color: var(--accent); }
 
 .page { display: none; }
 .page.active { display: block; animation: gp-fade-in 0.22s var(--ease); }
+
+/* Room for the fixed bottom nav so the last card in any page is never
+   hidden behind it. */
+#page-home, #page-feed { padding-bottom: 78px; }
+.chat-card { padding-bottom: 0; }
+#page-chat { padding-bottom: 0; }
 
 .card {
   background: var(--card);
@@ -1457,24 +1477,123 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 /* ---------- Feed ---------- */
 .feed-page-inner {
-  padding: 16px;
+  padding: 12px 0 16px;
   max-width: 560px;
   margin: 0 auto;
 }
 
+/* ---------- Stories row (Instagram-style horizontal avatar rail) ---------- */
+.stories-row {
+  display: flex;
+  gap: 16px;
+  padding: 4px 16px 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.stories-row::-webkit-scrollbar { display: none; }
+
+.story-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  width: 62px;
+  cursor: pointer;
+}
+
+.story-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  padding: 2.5px;
+  background: var(--bg-subtle-hover);
+  transition: transform 0.15s var(--ease-spring);
+}
+.story-item:active .story-ring { transform: scale(0.94); }
+
+.story-ring-online { background: var(--brand-gradient); box-shadow: var(--glow-accent); }
+.story-ring-you { background: var(--bg-subtle-hover); }
+
+.story-ring .avatar,
+.story-ring img {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 50%;
+  border: 2.5px solid var(--card);
+  box-sizing: border-box;
+}
+
+.story-add-badge {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  color: white;
+  font-size: 14px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2.5px solid var(--card);
+  box-shadow: var(--glow-accent);
+}
+
+.story-name {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Slim by default (a single-line "Share something..." pill); expands into
+   the full composer once focused or actively in use. */
+.new-post-card {
+  padding: 10px 14px;
+  margin: 0 16px 16px;
+  transition: padding 0.2s var(--ease);
+}
+
 .new-post-card textarea {
-  resize: vertical;
+  resize: none;
   font-family: inherit;
-  min-height: 56px;
+  min-height: 22px;
+  max-height: 22px;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  transition: max-height 0.22s var(--ease), border-radius 0.22s var(--ease), padding 0.22s var(--ease);
+}
+
+.new-post-card.expanded textarea {
+  resize: vertical;
+  min-height: 64px;
+  max-height: 200px;
   border-radius: var(--radius-md);
+  overflow: auto;
 }
 
 .new-post-actions {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-top: 12px;
+}
+
+.new-post-card.expanded .new-post-actions,
+.new-post-card:focus-within .new-post-actions {
+  display: flex;
 }
 
 .attach-btn {
@@ -1483,7 +1602,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   gap: 6px;
   background: var(--bg-subtle);
   color: var(--text);
-  padding: 9px 15px;
+  padding: 9px 12px;
   border-radius: var(--radius-full);
   font-size: 13px;
   font-weight: 600;
@@ -1491,6 +1610,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   flex-shrink: 0;
   transition: background 0.15s var(--ease);
 }
+.attach-btn svg { width: 20px; height: 20px; display: block; }
 
 .attach-btn:hover { background: var(--bg-subtle-hover); }
 
@@ -1498,7 +1618,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   flex-shrink: 0;
   padding: 10px 28px;
   border-radius: var(--radius-full);
+  background: var(--brand-gradient);
+  box-shadow: var(--glow-accent);
 }
+.new-post-actions button[type="submit"]:hover { filter: brightness(1.08); box-shadow: var(--glow-accent-lg); }
 
 .post-media-preview {
   position: relative;
@@ -1536,54 +1659,73 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   justify-content: center;
 }
 
-.feed-list { display: flex; flex-direction: column; gap: 16px; }
+.feed-list { display: flex; flex-direction: column; gap: 18px; }
 
 .post-card {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   overflow: hidden;
-  box-shadow: var(--shadow-xs);
   animation: gp-fade-up 0.3s var(--ease);
-  transition: box-shadow 0.2s var(--ease);
 }
-
-.post-card:hover { box-shadow: var(--shadow-sm); }
 
 .post-card-header {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 13px 15px;
+  gap: 10px;
+  padding: 11px 14px;
 }
 
-.post-card-header-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
-.post-card-header-time { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.post-card-avatar-ring {
+  display: inline-flex;
+  padding: 1.5px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+}
+.post-card-avatar-ring .avatar, .post-card-avatar-ring img {
+  border: 2px solid var(--card);
+  box-sizing: border-box;
+  display: block;
+}
+
+.post-card-header-name { font-weight: 700; font-size: 13.5px; letter-spacing: -0.01em; }
+.post-card-header-time { font-size: 11px; color: var(--muted); margin-top: 1px; }
 .post-card-header-info { flex: 1; }
 
-.post-delete-btn {
+.post-more-btn {
   background: transparent;
-  color: var(--muted);
+  color: var(--text);
   padding: 6px;
-  font-size: 15px;
   border-radius: 50%;
   width: 30px;
   height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.post-delete-btn:hover { background: var(--danger-soft); color: var(--danger); }
+.post-more-btn svg { width: 18px; height: 18px; }
+.post-more-btn:hover { background: var(--bg-subtle); }
 
 .post-card-caption {
-  padding: 0 15px 12px;
-  font-size: 14.5px;
+  padding: 4px 14px 10px;
+  font-size: 13.5px;
   line-height: 1.45;
   white-space: pre-wrap;
 }
+.post-card-caption-name { font-weight: 700; margin-right: 4px; }
 
-.post-card-media { width: 100%; background: #000; max-height: 420px; display: block; overflow: hidden; position: relative; }
+.post-card-media {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #000;
+  display: block;
+  overflow: hidden;
+  position: relative;
+}
 .post-card-media img, .post-card-media video {
   width: 100%;
-  max-height: 420px;
-  object-fit: contain;
+  height: 100%;
+  object-fit: cover;
   display: block;
   background: #000;
 }
@@ -1591,33 +1733,37 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .post-card-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 10px 10px 2px;
 }
 
 .post-action-btn {
   background: transparent;
   color: var(--text);
-  padding: 8px 10px;
-  font-size: 21px;
+  padding: 6px;
   display: flex;
   align-items: center;
-  gap: 7px;
   line-height: 1;
-  border-radius: var(--radius-full);
+  border-radius: 50%;
   transition: transform 0.15s var(--ease-spring), background 0.15s var(--ease);
 }
+.post-action-btn.icon-only svg { width: 25px; height: 25px; display: block; }
 .post-action-btn:hover { background: var(--bg-subtle); }
-.post-action-btn:active { transform: scale(0.88); }
-.post-action-btn .count { font-size: 13px; font-weight: 600; color: var(--muted); }
+.post-action-btn:active { transform: scale(0.82); }
 .post-action-btn.liked { color: var(--danger); }
-.post-action-btn.liked .count { color: var(--danger); }
+.post-actions-spacer { flex: 1; }
+
+.post-card-likes {
+  padding: 0 14px 4px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
 
 .post-card-comments {
-  padding: 2px 15px 12px;
+  padding: 2px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
 }
 
 .post-comment-row { font-size: 13.5px; line-height: 1.42; }
@@ -1625,26 +1771,31 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .post-comment-form {
   display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 10px 15px 15px;
-  border-top: 1px solid var(--border);
+  padding: 8px 14px 14px;
 }
 
 .post-comment-form input {
   flex: 1;
-  padding: 9px 14px;
-  border-radius: var(--radius-full);
-  font-size: 13px;
-  background: var(--bg-subtle);
-  border-color: transparent;
+  padding: 6px 0;
+  font-size: 13.5px;
+  background: transparent;
+  border: none;
+  color: var(--text);
 }
+.post-comment-form input::placeholder { color: var(--muted); }
+.post-comment-form input:focus { border: none; box-shadow: none; }
 
 .post-comment-form button {
-  padding: 8px 18px;
-  font-size: 13px;
+  padding: 6px 4px;
+  font-size: 13.5px;
+  font-weight: 700;
   flex-shrink: 0;
-  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--accent);
 }
+.post-comment-form button:hover { background: transparent; filter: brightness(1.15); }
 
 /* ---------- Chat media ---------- */
 .attach-icon-btn {
@@ -2326,7 +2477,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
     background: var(--bg);
   }
 
-  .topbar, .tabbar, .chat-header, .call-bar { border-radius: 0; }
+  .topbar, .chat-header, .call-bar { border-radius: 0; }
+
+  /* Keep the fixed bottom nav aligned with the centered app card instead
+     of spanning the full browser width. */
+  .tabbar {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 900px;
+  }
 }
 
 @media (max-width: 480px) {
