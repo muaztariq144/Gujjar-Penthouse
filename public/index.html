@@ -188,27 +188,27 @@
     <div class="who">
       <button id="notif-btn" class="icon-btn hidden" title="Enable notifications">🔔</button>
       <button id="install-btn" class="text-btn hidden">Install</button>
-      <button id="profile-btn" class="hidden" title="Your profile"></button>
+      <button id="header-notif-btn" class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10a6 6 0 1 1 12 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+        <span class="header-notif-badge hidden" id="header-notif-badge"></span>
+      </button>
     </div>
   </header>
 
   <nav class="tabbar">
-    <button class="page-btn active" data-page="home" title="Home">
+    <button class="page-btn active" data-page="feed" title="Home">
       <span class="tab-icon-wrap">
         <span class="tab-icon tab-icon-outline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V20a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1V9.5"/></svg></span>
         <span class="tab-icon tab-icon-filled"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2.6 2.2 10.8a1 1 0 0 0 .64 1.77H4.5V20a2 2 0 0 0 2 2H9a1 1 0 0 0 1-1v-5.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V21a1 1 0 0 0 1 1h2.5a2 2 0 0 0 2-2v-7.43h1.66a1 1 0 0 0 .64-1.77z"/></svg></span>
       </span>
-      <span class="tab-badge hidden" id="badge-home"></span>
-    </button>
-    <button class="page-btn" data-page="feed" title="Feed">
-      <span class="tab-icon-wrap">
-        <span class="tab-icon tab-icon-outline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></svg></span>
-        <span class="tab-icon tab-icon-filled"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></svg></span>
-      </span>
       <span class="tab-badge hidden" id="badge-feed"></span>
     </button>
-    <button type="button" class="tab-add-btn" id="nav-add-btn" title="Share something">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8"/></svg>
+    <button class="page-btn" data-page="home" title="Tasks & polls">
+      <span class="tab-icon-wrap">
+        <span class="tab-icon tab-icon-outline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="3.5" width="15" height="17" rx="2.2"/><path d="M9 3v2.4a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V3"/><path d="m8.2 12.5 2 2 3.6-4"/><path d="M8 17.5h5"/></svg></span>
+        <span class="tab-icon tab-icon-filled"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M9 2a1 1 0 0 0-1 1v.5H6a2 2 0 0 0-2 2V20a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5.5a2 2 0 0 0-2-2h-2V3a1 1 0 0 0-1-1H9Zm7.2 9.9-4.1 4.6a1 1 0 0 1-1.47.05L8.3 14.2a1 1 0 1 1 1.4-1.42l1.28 1.26 3.4-3.83a1 1 0 0 1 1.5 1.32Z"/></svg></span>
+      </span>
+      <span class="tab-badge hidden" id="badge-home"></span>
     </button>
     <button class="page-btn" data-page="chat" title="Chat">
       <span class="tab-icon-wrap">
@@ -220,8 +220,32 @@
     <button type="button" class="tab-profile-btn" id="nav-profile-btn" title="Profile"></button>
   </nav>
 
-  <!-- Home page -->
-  <section id="page-home" class="page active">
+  <!-- Feed page (now the first / "Home" tab, Instagram-style: stories + posts) -->
+  <section id="page-feed" class="page active">
+    <div class="feed-page-inner">
+      <div id="stories-row" class="stories-row"></div>
+
+      <div class="card new-post-card" id="new-post-card">
+        <form id="post-form">
+          <textarea id="post-caption" rows="1" placeholder="Share something..."></textarea>
+          <div id="post-media-preview" class="post-media-preview hidden"></div>
+          <div class="new-post-actions">
+            <label class="attach-btn" title="Add a photo or video">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h2.6l1.2-2h8.4l1.2 2H20a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="14" r="3.4"/></svg>
+              <input type="file" id="post-media-input" accept="image/*,video/*" class="hidden" />
+            </label>
+            <button type="submit" id="post-submit-btn">Post</button>
+          </div>
+          <p class="error" id="post-error"></p>
+        </form>
+      </div>
+
+      <div id="feed-list" class="feed-list"></div>
+    </div>
+  </section>
+
+  <!-- Home page (now the second tab: house dashboard — tasks & polls) -->
+  <section id="page-home" class="page">
     <div class="home-page-inner">
       <div class="home-greeting-card">
         <div class="home-greeting-text">
@@ -235,11 +259,6 @@
       <div class="card">
         <h2>Your tasks</h2>
         <ul id="home-tasks-list" class="task-list"></ul>
-      </div>
-
-      <div class="card">
-        <h2>Recent notifications</h2>
-        <ul id="home-notifications-list" class="notification-list"></ul>
       </div>
 
       <div class="card">
@@ -267,30 +286,6 @@
         <h2>All house tasks</h2>
         <ul id="all-tasks-list" class="task-list"></ul>
       </div>
-    </div>
-  </section>
-
-  <!-- Feed page -->
-  <section id="page-feed" class="page">
-    <div class="feed-page-inner">
-      <div id="stories-row" class="stories-row"></div>
-
-      <div class="card new-post-card" id="new-post-card">
-        <form id="post-form">
-          <textarea id="post-caption" rows="1" placeholder="Share something..."></textarea>
-          <div id="post-media-preview" class="post-media-preview hidden"></div>
-          <div class="new-post-actions">
-            <label class="attach-btn" title="Add a photo or video">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h2.6l1.2-2h8.4l1.2 2H20a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="14" r="3.4"/></svg>
-              <input type="file" id="post-media-input" accept="image/*,video/*" class="hidden" />
-            </label>
-            <button type="submit" id="post-submit-btn">Post</button>
-          </div>
-          <p class="error" id="post-error"></p>
-        </form>
-      </div>
-
-      <div id="feed-list" class="feed-list"></div>
     </div>
   </section>
 
@@ -398,14 +393,23 @@
       </form>
     </div>
   </section>
-</div>
 
-<!-- ===== PROFILE MODAL ===== -->
-<div id="profile-modal" class="modal-overlay hidden">
-  <div class="modal-card">
-    <div class="modal-header">
+  <!-- Notifications page (opened from the bell icon in the header) -->
+  <section id="page-notifications" class="page">
+    <div class="subpage-header">
+      <button type="button" id="notifications-back-btn" class="subpage-back-btn" title="Back">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <h2>Notifications</h2>
+    </div>
+    <ul id="notifications-page-list" class="notification-list notification-list-page"></ul>
+  </section>
+
+  <!-- Profile page (fourth tab — a full page rather than a modal, so it's
+       never awkward to back out of) -->
+  <section id="page-profile" class="page">
+    <div class="subpage-header">
       <h2>Your profile</h2>
-      <button type="button" class="modal-close-btn" data-close-modal="profile-modal">✕</button>
     </div>
 
     <div class="profile-modal-body">
@@ -458,7 +462,7 @@
 
       <button type="button" id="logout-btn" class="danger-btn full-width-btn">Log out</button>
     </div>
-  </div>
+  </section>
 </div>
 
 <!-- ===== MEMBERS MODAL (opened by tapping the logo/name) ===== -->
