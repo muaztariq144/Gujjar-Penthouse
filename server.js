@@ -159,15 +159,15 @@ async function sendPushToUsers({ excludeUserId, onlyUserId, title, body, tag, ty
 
 // In-app "recent notifications" feed (separate from browser push notifications
 // above — this is what shows up in the Home tab even without push enabled).
-function addNotification(userId, type, text) {
+function addNotification(userId, type, text, target = null) {
   if (!userId) return;
-  const notification = { id: uuid(), user_id: userId, type, text, created_at: Date.now(), read: false };
+  const notification = { id: uuid(), user_id: userId, type, text, target, created_at: Date.now(), read: false };
   db.notifications.push(notification);
   // Let that person's Home tab pick it up live, the same way chat messages
   // and feed posts do, instead of only showing up on their next visit.
   io.emit('notification:new', {
     userId,
-    notification: { id: notification.id, type: notification.type, text: notification.text, createdAt: notification.created_at, read: false },
+    notification: { id: notification.id, type: notification.type, text: notification.text, target: notification.target, createdAt: notification.created_at, read: false },
   });
 }
 
@@ -435,7 +435,8 @@ app.post('/api/tasks', authMiddleware, (req, res) => {
     addNotification(
       assignee.id,
       'task',
-      `${req.user.name} assigned you a task: "${trimmedTitle}"${cleanDueDate ? ` — due ${cleanDueDate}` : ''}`
+      `${req.user.name} assigned you a task: "${trimmedTitle}"${cleanDueDate ? ` — due ${cleanDueDate}` : ''}`,
+      { type: 'task', id: task.id }
     );
   }
   save();
@@ -450,6 +451,8 @@ app.post('/api/tasks', authMiddleware, (req, res) => {
       title: `${req.user.name} assigned you a task`,
       body: trimmedTitle,
       tag: 'gp-task',
+      type: 'task',
+      data: { targetType: 'task', targetId: task.id },
     }).catch(() => {});
   }
 });
@@ -481,7 +484,7 @@ app.get('/api/notifications', authMiddleware, (req, res) => {
     .sort((a, b) => b.created_at - a.created_at)
     .slice(0, 20);
 
-  const result = mine.map(n => ({ id: n.id, type: n.type, text: n.text, createdAt: n.created_at, read: n.read }));
+  const result = mine.map(n => ({ id: n.id, type: n.type, text: n.text, target: n.target || null, createdAt: n.created_at, read: n.read }));
 
   // Viewing the feed marks these as read, the same way opening a chat app
   // clears its unread badge.
@@ -623,7 +626,7 @@ app.post('/api/polls', authMiddleware, (req, res) => {
 
   for (const u of db.users) {
     if (u.id === req.user.id) continue;
-    addNotification(u.id, 'poll', `${req.user.name} started a poll: "${trimmedQuestion}"`);
+    addNotification(u.id, 'poll', `${req.user.name} started a poll: "${trimmedQuestion}"`, { type: 'poll', id: poll.id });
   }
   save();
 
@@ -636,6 +639,8 @@ app.post('/api/polls', authMiddleware, (req, res) => {
     title: `${req.user.name} started a poll`,
     body: trimmedQuestion,
     tag: 'gp-poll',
+    type: 'poll',
+    data: { targetType: 'poll', targetId: poll.id },
   }).catch(() => {});
 });
 
@@ -737,7 +742,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
   const postKind = cleanMedia?.kind === 'video' ? 'a video' : cleanMedia ? 'a photo' : 'a post';
   for (const u of db.users) {
     if (u.id === req.user.id) continue;
-    addNotification(u.id, 'post', `${req.user.name} shared ${postKind}${captionSnippet ? `: ${captionSnippet}` : ''}`);
+    addNotification(u.id, 'post', `${req.user.name} shared ${postKind}${captionSnippet ? `: ${captionSnippet}` : ''}`, { type: 'post', id: post.id });
   }
   save();
 
@@ -750,6 +755,8 @@ app.post('/api/posts', authMiddleware, (req, res) => {
     title: `${req.user.name} posted to the feed`,
     body: trimmedCaption || (cleanMedia?.kind === 'video' ? '🎥 New video' : '📷 New photo'),
     tag: 'gp-feed',
+    type: 'post',
+    data: { targetType: 'post', targetId: post.id },
   }).catch(() => {});
 });
 
@@ -775,7 +782,7 @@ app.post('/api/posts/:id/like', authMiddleware, (req, res) => {
 
   if (nowLiked && post.user_id !== req.user.id) {
     const captionSnippet = quoteSnippet(post.caption);
-    addNotification(post.user_id, 'like', `${req.user.name} liked your post${captionSnippet ? `: ${captionSnippet}` : ''}`);
+    addNotification(post.user_id, 'like', `${req.user.name} liked your post${captionSnippet ? `: ${captionSnippet}` : ''}`, { type: 'post', id: post.id });
   }
   save();
 
@@ -788,6 +795,8 @@ app.post('/api/posts/:id/like', authMiddleware, (req, res) => {
       title: `${req.user.name} liked your post`,
       body: post.caption || '❤️',
       tag: 'gp-feed-like',
+      type: 'post',
+      data: { targetType: 'post', targetId: post.id },
     }).catch(() => {});
   }
 });
@@ -810,7 +819,7 @@ app.post('/api/posts/:id/comments', authMiddleware, (req, res) => {
   post.comments.push(comment);
 
   if (post.user_id !== req.user.id) {
-    addNotification(post.user_id, 'comment', `${req.user.name} commented on your post: ${quoteSnippet(comment.text)}`);
+    addNotification(post.user_id, 'comment', `${req.user.name} commented on your post: ${quoteSnippet(comment.text)}`, { type: 'post', id: post.id });
   }
   save();
 
@@ -823,6 +832,8 @@ app.post('/api/posts/:id/comments', authMiddleware, (req, res) => {
       title: `${req.user.name} commented on your post`,
       body: comment.text,
       tag: 'gp-feed-comment',
+      type: 'post',
+      data: { targetType: 'post', targetId: post.id },
     }).catch(() => {});
   }
 });
@@ -1090,6 +1101,8 @@ io.on('connection', (socket) => {
       title: socket.user.name,
       body: trimmedText || (attachment?.kind === 'image' ? '📷 Photo' : attachment?.kind === 'video' ? '🎥 Video' : '📎 Attachment'),
       tag: 'gp-chat',
+      type: 'chat',
+      data: { targetType: 'chat', targetId: message.id },
     }).catch(() => {});
   });
 
