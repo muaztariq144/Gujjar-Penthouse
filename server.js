@@ -21,6 +21,11 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'app.json');
 const { data: db, save } = createStore(DB_PATH);
+// Chat read receipts: userId -> { messageId, at }, the last message each
+// person has scrolled to/opened chat with visible. Not modeled in jsondb's
+// array list since it's a lookup object, but it's part of `data` so save()
+// (which just JSON.stringifies the whole object) persists it the same way.
+if (!db.chatReads || typeof db.chatReads !== 'object') db.chatReads = {};
 
 // ---------- Uploaded media (chat photos/videos/files, feed post photos) ----------
 // Stored on disk next to the database (same persistence caveats as the JSON
@@ -676,7 +681,7 @@ app.delete('/api/polls/:id', authMiddleware, (req, res) => {
 // ---------- Chat ----------
 app.get('/api/messages', authMiddleware, (req, res) => {
   const messages = [...db.messages].sort((a, b) => a.created_at - b.created_at).slice(-200);
-  res.json({ messages });
+  res.json({ messages, reads: db.chatReads });
 });
 
 // ---------- Feed (Instagram-style posts, likes, comments) ----------
@@ -874,6 +879,24 @@ function stopTyping(socket) {
   }
 }
 
+// ---------- Who's currently looking at the chat page ----------
+// Separate from general online presence — this is specifically "has the
+// Chat tab open right now", so roommates can see who might actually reply.
+const chatViewers = new Map(); // socket.id -> publicUser()
+
+function broadcastChatViewers() {
+  const seen = new Map();
+  for (const u of chatViewers.values()) seen.set(u.id, u);
+  io.emit('chat:viewers-update', [...seen.values()]);
+}
+
+function leaveChatView(socket) {
+  if (chatViewers.has(socket.id)) {
+    chatViewers.delete(socket.id);
+    broadcastChatViewers();
+  }
+}
+
 // ---------- Voice/video call room (WebRTC signaling only — no media passes through this server) ----------
 // Map of socket.id -> { userId, userName }, everyone currently in the shared call.
 const callParticipants = new Map();
@@ -890,6 +913,25 @@ io.on('connection', (socket) => {
   // Let the newly-connected device know who else is already online (its own
   // presence broadcast already told everyone else about it).
   socket.emit('presence:snapshot', { onlineUserIds: [...onlineUserIds] });
+  socket.emit('chat:viewers-update', [...new Map([...chatViewers.values()].map(u => [u.id, u])).values()]);
+
+  // ---------- Who's currently on the Chat tab ----------
+  socket.on('chat:enter', () => {
+    chatViewers.set(socket.id, socket.user);
+    broadcastChatViewers();
+  });
+
+  socket.on('chat:leave-view', () => leaveChatView(socket));
+
+  // ---------- Chat read receipts ("seen by") ----------
+  socket.on('chat:mark-read', ({ messageId }) => {
+    if (typeof messageId !== 'string') return;
+    const message = db.messages.find(m => m.id === messageId);
+    if (!message) return;
+    db.chatReads[socket.user.id] = { messageId, at: Date.now() };
+    save();
+    io.emit('chat:read-update', { userId: socket.user.id, messageId });
+  });
 
   // ---------- Chat message reactions (❤️ 😂 👍 etc, WhatsApp/iMessage-style) ----------
   socket.on('chat:react', ({ messageId, emoji }) => {
@@ -1056,6 +1098,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     leaveCall(socket);
     stopTyping(socket);
+    leaveChatView(socket);
     markOffline(socket.user.id);
   });
 });
