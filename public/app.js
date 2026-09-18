@@ -308,6 +308,8 @@ async function startApp() {
   $('#app-screen').classList.remove('hidden');
   renderProfileButton();
   renderHomeGreeting();
+  renderEventBanner();
+  renderEventDancer();
 
   await loadUsers();
   await loadMessages();
@@ -338,6 +340,56 @@ function renderHomeGreeting() {
   if (dateEl) {
     dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
   }
+}
+
+// ---------- Time-limited "Baraat" theme (Ateeb Saeed's wedding, Nov 1–3) ----------
+// The palette/background pattern itself is pure CSS gated on the
+// data-event-theme attribute (set in index.html's head, so there's no
+// flash). This just handles the two dynamic bits: the falling petals and
+// the Home banner text, which both need to know today's date.
+const BARAAT_START = new Date('2026-11-01T00:00:00');
+const BARAAT_END = new Date('2026-11-03T23:59:59');
+
+function isEventThemeActive() {
+  return document.documentElement.getAttribute('data-event-theme') === 'baraat';
+}
+
+function renderEventDancer() {
+  const dancer = $('#event-dancer');
+  const bubble = $('#event-speech-bubble');
+  if (!dancer) return;
+  if (!isEventThemeActive()) { dancer.classList.add('hidden'); return; }
+
+  const now = new Date();
+  let text;
+  if (now < BARAAT_START) {
+    text = `Ateeb's shadi coming soon! 💍`;
+  } else if (now <= BARAAT_END) {
+    text = `Baraat Mubarak! 🎊`;
+  } else {
+    text = `Mubarak ho, Ateeb! 💐`;
+  }
+  if (bubble) bubble.textContent = text;
+  dancer.classList.remove('hidden');
+}
+
+function renderEventBanner() {
+  const banner = $('#event-banner');
+  if (!banner) return;
+  if (!isEventThemeActive()) { banner.classList.add('hidden'); return; }
+
+  const now = new Date();
+  let text;
+  if (now < BARAAT_START) {
+    const daysLeft = Math.ceil((BARAAT_START - now) / 86400000);
+    text = `💍 ${daysLeft} day${daysLeft === 1 ? '' : 's'} until Ateeb Saeed's Baraat! 🎉`;
+  } else if (now <= BARAAT_END) {
+    text = `🎊 Baraat Mubarak! Celebrating Ateeb Saeed's wedding — mubarak ho! 💐`;
+  } else {
+    text = `💍 Wishing Ateeb Saeed a beautiful married life ahead! 🎉`;
+  }
+  banner.textContent = text;
+  banner.classList.remove('hidden');
 }
 
 // ---------- Members popup (tap the logo/name in the header) ----------
