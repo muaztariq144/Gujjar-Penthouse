@@ -900,6 +900,156 @@ app.post('/api/stories/:id/view', authMiddleware, (req, res) => {
   res.json({ ok: true, viewers: story.viewers });
 });
 
+// ---------- Acorn Hunt (a moving hidden-token game across the whole app) ----------
+// One "acorn" is always hiding somewhere — on a post, a task, someone's
+// profile, or a chat message. It relocates itself every few minutes (faster
+// the longer it goes unfound), and long-pressing the right spot in the
+// client catches it. A fresh hunt starts a few minutes after each catch.
+const ACORN_MOVE_INITIAL_MS = 5 * 60 * 1000; // moves every 5 min at first
+const ACORN_MOVE_FAST_MS = 90 * 1000; // escalates to every 90s once it's gone on a while
+const ACORN_ESCALATE_AFTER_MS = 20 * 60 * 1000; // how long unfound before it speeds up
+const ACORN_MAX_AGE_MS = 3 * 60 * 60 * 1000; // safety valve — force a fresh hunt if nobody finds it in 3h
+const ACORN_RESPAWN_DELAY_MS = 3 * 60 * 1000; // cooldown after a catch before the next hunt starts
+const ACORN_SEARCH_COOLDOWN_MS = 2000; // per-user throttle so it can't be spammed
+const acornSearchCooldowns = new Map(); // userId -> timestamp of last search attempt, in-memory only
+
+function collectAcornCandidates() {
+  const candidates = [];
+  for (const p of db.posts.slice(-40)) candidates.push({ type: 'post', id: p.id });
+  for (const t of db.tasks.filter((t) => !t.done).slice(-40)) candidates.push({ type: 'task', id: t.id });
+  for (const u of db.users) candidates.push({ type: 'profile', id: u.id });
+  for (const m of db.messages.slice(-40)) candidates.push({ type: 'chat', id: m.id });
+  return candidates;
+}
+
+function getCurrentAcornGame() {
+  return db.acornGames.length ? db.acornGames[db.acornGames.length - 1] : null;
+}
+
+function spawnAcorn() {
+  const candidates = collectAcornCandidates();
+  if (candidates.length < 2) return; // not enough content in the house yet to hide it
+  const location = candidates[Math.floor(Math.random() * candidates.length)];
+  const now = Date.now();
+  const game = {
+    id: uuid(),
+    location,
+    hiddenAt: now,
+    lastMovedAt: now,
+    moveCount: 0,
+    active: true,
+    foundBy: null,
+    foundByName: null,
+    foundAt: null,
+    seekTimeMs: null,
+  };
+  db.acornGames.push(game);
+  if (db.acornGames.length > 200) db.acornGames = db.acornGames.slice(-200);
+  save();
+  io.emit('acorn:hidden', { hiddenAt: now });
+}
+
+function moveAcorn(game) {
+  const candidates = collectAcornCandidates().filter((c) => !(c.type === game.location.type && c.id === game.location.id));
+  if (!candidates.length) return;
+  game.location = candidates[Math.floor(Math.random() * candidates.length)];
+  game.lastMovedAt = Date.now();
+  game.moveCount += 1;
+  save();
+  io.emit('acorn:moved', { moveCount: game.moveCount });
+}
+
+function acornLeaderboard() {
+  const tally = {};
+  for (const g of db.acornGames) {
+    if (!g.foundBy) continue;
+    if (!tally[g.foundBy]) tally[g.foundBy] = { userId: g.foundBy, name: g.foundByName, finds: 0, fastestMs: Infinity, totalMs: 0 };
+    const t = tally[g.foundBy];
+    t.finds += 1;
+    t.totalMs += g.seekTimeMs || 0;
+    if (g.seekTimeMs && g.seekTimeMs < t.fastestMs) t.fastestMs = g.seekTimeMs;
+  }
+  return Object.values(tally)
+    .map((t) => ({ ...t, fastestMs: t.fastestMs === Infinity ? null : t.fastestMs }))
+    .sort((a, b) => b.finds - a.finds || (a.fastestMs || Infinity) - (b.fastestMs || Infinity));
+}
+
+function publicAcornStatus() {
+  const game = getCurrentAcornGame();
+  return {
+    active: !!(game && game.active),
+    hiddenAt: game ? game.hiddenAt : null,
+    moveCount: game ? game.moveCount : 0,
+    lastResult: game && !game.active && game.foundBy
+      ? { userId: game.foundBy, name: game.foundByName, seekTimeMs: game.seekTimeMs }
+      : null,
+    leaderboard: acornLeaderboard(),
+  };
+}
+
+function acornTick() {
+  const now = Date.now();
+  const game = getCurrentAcornGame();
+
+  if (!game || !game.active) {
+    const readyToRespawn = !game || !game.foundAt || now - game.foundAt >= ACORN_RESPAWN_DELAY_MS;
+    if (readyToRespawn) spawnAcorn();
+    return;
+  }
+
+  const age = now - game.hiddenAt;
+  if (age >= ACORN_MAX_AGE_MS) {
+    game.active = false;
+    save();
+    io.emit('acorn:expired', {});
+    return;
+  }
+
+  const currentInterval = age >= ACORN_ESCALATE_AFTER_MS ? ACORN_MOVE_FAST_MS : ACORN_MOVE_INITIAL_MS;
+  if (now - game.lastMovedAt >= currentInterval) moveAcorn(game);
+}
+
+setInterval(acornTick, 30 * 1000);
+// Give the app a moment to finish booting (and seed a user or two) before the first hunt starts.
+setTimeout(acornTick, 5000);
+
+app.get('/api/acorn', authMiddleware, (req, res) => {
+  res.json(publicAcornStatus());
+});
+
+app.post('/api/acorn/search', authMiddleware, (req, res) => {
+  const last = acornSearchCooldowns.get(req.user.id) || 0;
+  const now = Date.now();
+  if (now - last < ACORN_SEARCH_COOLDOWN_MS) {
+    return res.status(429).json({ error: 'Slow down a little before searching again.' });
+  }
+  acornSearchCooldowns.set(req.user.id, now);
+
+  const { type, id } = req.body || {};
+  if (!type || !id) return res.status(400).json({ error: 'Nothing to search there.' });
+
+  const game = getCurrentAcornGame();
+  if (!game || !game.active) return res.json({ found: false });
+
+  if (game.location.type === type && String(game.location.id) === String(id)) {
+    game.active = false;
+    game.foundBy = req.user.id;
+    game.foundByName = req.user.name;
+    game.foundAt = now;
+    game.seekTimeMs = now - game.hiddenAt;
+    save();
+    io.emit('acorn:found', {
+      userId: req.user.id,
+      name: req.user.name,
+      seekTimeMs: game.seekTimeMs,
+      moveCount: game.moveCount,
+    });
+    return res.json({ found: true, seekTimeMs: game.seekTimeMs });
+  }
+
+  res.json({ found: false });
+});
+
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   const user = getUserByToken(token);
