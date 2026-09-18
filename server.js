@@ -827,6 +827,79 @@ app.post('/api/posts/:id/comments', authMiddleware, (req, res) => {
   }
 });
 
+// ---------- Stories (24h-expiring, Instagram-style) ----------
+const STORY_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+function publicStory(story) {
+  return {
+    id: story.id,
+    user_id: story.user_id,
+    user_name: story.user_name,
+    media: story.media,
+    caption: story.caption || '',
+    createdAt: story.created_at,
+    expiresAt: story.expires_at,
+    viewers: story.viewers,
+  };
+}
+
+function pruneExpiredStories() {
+  const now = Date.now();
+  const before = db.stories.length;
+  db.stories = db.stories.filter((s) => s.expires_at > now);
+  if (db.stories.length !== before) save();
+}
+
+app.get('/api/stories', authMiddleware, (req, res) => {
+  pruneExpiredStories();
+  const stories = [...db.stories]
+    .sort((a, b) => a.created_at - b.created_at)
+    .map(publicStory);
+  res.json({ stories });
+});
+
+app.post('/api/stories', authMiddleware, (req, res) => {
+  pruneExpiredStories();
+  const { media, caption } = req.body || {};
+  const trimmedCaption = typeof caption === 'string' ? caption.trim() : '';
+  const cleanMedia = media && typeof media.url === 'string'
+    ? { url: media.url, kind: ['image', 'video'].includes(media.kind) ? media.kind : 'image' }
+    : null;
+
+  if (!cleanMedia && !trimmedCaption) {
+    return res.status(400).json({ error: 'Add a photo or video for your story.' });
+  }
+
+  const now = Date.now();
+  const story = {
+    id: uuid(),
+    user_id: req.user.id,
+    user_name: req.user.name,
+    media: cleanMedia,
+    caption: trimmedCaption,
+    viewers: [],
+    created_at: now,
+    expires_at: now + STORY_LIFETIME_MS,
+  };
+  db.stories.push(story);
+  save();
+
+  const publicVersion = publicStory(story);
+  io.emit('story:new', publicVersion);
+  res.json({ ok: true, story: publicVersion });
+});
+
+app.post('/api/stories/:id/view', authMiddleware, (req, res) => {
+  const story = db.stories.find((s) => s.id === req.params.id);
+  if (!story) return res.status(404).json({ error: 'Story not found.' });
+  if (!story.viewers.includes(req.user.id)) {
+    story.viewers.push(req.user.id);
+    save();
+    io.emit('story:viewed', { id: story.id, viewers: story.viewers });
+  }
+  res.json({ ok: true, viewers: story.viewers });
+});
+
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   const user = getUserByToken(token);
