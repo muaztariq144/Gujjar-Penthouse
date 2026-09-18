@@ -11,7 +11,6 @@ const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
 const webpush = require('web-push');
 const multer = require('multer');
-const nodemailer = require('nodemailer');
 const { createStore } = require('./lib/jsondb');
 
 // ---------- Setup ----------
@@ -53,17 +52,19 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
 webpush.setVapidDetails('mailto:gujjarpenthouse@gmail.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 // ---------- Email (used for "forgot password" one-time codes) ----------
-// Configure by setting EMAIL_USER + EMAIL_PASS (a Gmail address + Gmail "App
-// Password") as environment variables on Railway. If they're not set, OTP
-// codes are just printed to the server log instead of emailed — handy for
-// local testing, but roommates won't get a real email until this is set up.
-let mailTransporter = null;
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  mailTransporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  });
-}
+// Sent through Brevo's HTTPS email API (https://www.brevo.com) rather than
+// classic SMTP. Railway blocks outbound SMTP ports (25, 465, 587) on its
+// Free/Trial/Hobby plans "to prevent spam and abuse", so a Gmail-SMTP-based
+// mailer (what this used to be) can never actually send from a Railway app
+// on those plans — the request just hangs. Brevo's API runs over plain
+// HTTPS like any other web request, so it works on every Railway plan.
+//
+// Configure by setting BREVO_API_KEY + EMAIL_FROM as environment variables
+// on Railway. If they're not set, OTP codes are just printed to the server
+// log instead of emailed — handy for local testing, but roommates won't get
+// a real email until this is set up.
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM;
 
 async function sendOtpEmail(toEmail, otp) {
   const subject = 'Your Gujjar Penthouse password reset code';
@@ -77,26 +78,56 @@ async function sendOtpEmail(toEmail, otp) {
     </div>
   `;
 
-  if (!mailTransporter) {
+  if (!BREVO_API_KEY || !EMAIL_FROM) {
     // Not configured — log it so whoever is running the server locally can still test the flow.
     console.log(`[dev only] Password reset code for ${toEmail}: ${otp}`);
     return;
   }
 
-  await mailTransporter.sendMail({
-    from: `"Gujjar Penthouse" <${process.env.EMAIL_USER}>`,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
+  // A hard timeout so a flaky network can never leave the request (and the
+  // "Send code" button on the frontend) hanging forever with no feedback.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  let response;
+  try {
+    response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'Gujjar Penthouse', email: EMAIL_FROM },
+        to: [{ email: toEmail }],
+        subject,
+        textContent: text,
+        htmlContent: html,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Email service timed out. Please try again.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Brevo API error ${response.status}: ${body}`);
+  }
 }
 
 // Sends a notification to every subscribed device belonging to the given users
 // (or everyone, if excludeUserId is the only filter). Cleans up subscriptions
 // that have gone stale (e.g. the user uninstalled the app).
-async function sendPushToUsers({ excludeUserId, title, body, tag, type, data }) {
-  const targets = db.pushSubscriptions.filter(s => s.user_id !== excludeUserId);
+async function sendPushToUsers({ excludeUserId, onlyUserId, title, body, tag, type, data }) {
+  const targets = onlyUserId
+    ? db.pushSubscriptions.filter(s => s.user_id === onlyUserId)
+    : db.pushSubscriptions.filter(s => s.user_id !== excludeUserId);
   const stillValid = [];
   let changed = false;
 
@@ -113,11 +144,26 @@ async function sendPushToUsers({ excludeUserId, title, body, tag, type, data }) 
 
   if (changed) {
     const keptEndpoints = new Set(stillValid.map(s => s.subscription.endpoint));
-    db.pushSubscriptions = db.pushSubscriptions.filter(
-      s => s.user_id === excludeUserId || keptEndpoints.has(s.subscription.endpoint)
-    );
+    db.pushSubscriptions = db.pushSubscriptions.filter((s) => {
+      const inScope = onlyUserId ? s.user_id === onlyUserId : s.user_id !== excludeUserId;
+      return !inScope || keptEndpoints.has(s.subscription.endpoint);
+    });
     save();
   }
+}
+
+// In-app "recent notifications" feed (separate from browser push notifications
+// above — this is what shows up in the Home tab even without push enabled).
+function addNotification(userId, type, text) {
+  if (!userId) return;
+  const notification = { id: uuid(), user_id: userId, type, text, created_at: Date.now(), read: false };
+  db.notifications.push(notification);
+  // Let that person's Home tab pick it up live, the same way chat messages
+  // and feed posts do, instead of only showing up on their next visit.
+  io.emit('notification:new', {
+    userId,
+    notification: { id: notification.id, type: notification.type, text: notification.text, createdAt: notification.created_at, read: false },
+  });
 }
 
 const app = express();
@@ -228,12 +274,17 @@ app.post('/api/signup', (req, res) => {
 
   const id = uuid();
   const hash = bcrypt.hashSync(password, 10);
-  db.users.push({ id, name: trimmedName, email: trimmedEmail, avatar_url: null, password_hash: hash, created_at: Date.now() });
+  const newUser = { id, name: trimmedName, email: trimmedEmail, avatar_url: null, password_hash: hash, created_at: Date.now() };
+  db.users.push(newUser);
 
   const token = uuid();
   db.sessions.push({ token, user_id: id, created_at: Date.now() });
   save();
-  res.json({ token, user: privateProfile({ id, name: trimmedName, email: trimmedEmail, avatar_url: null }) });
+  res.json({ token, user: privateProfile(newUser) });
+
+  // Let everyone else's app pick up the new roommate live (split checkboxes,
+  // task assignee list, etc.) without needing to reload.
+  io.emit('user:new', publicUser(newUser));
 });
 
 app.post('/api/login', (req, res) => {
@@ -357,6 +408,156 @@ app.get('/api/users', authMiddleware, (req, res) => {
   res.json({ users: db.users.map(publicUser) });
 });
 
+// ---------- Tasks (create & assign to a roommate, with a due date) ----------
+function publicTask(t) {
+  const assignee = findUserById(t.assigned_to);
+  const assigner = findUserById(t.assigned_by);
+  return {
+    id: t.id,
+    title: t.title,
+    dueDate: t.due_date,
+    done: !!t.done,
+    createdAt: t.created_at,
+    assignedTo: assignee ? publicUser(assignee) : null,
+    assignedBy: assigner ? publicUser(assigner) : null,
+  };
+}
+
+function sortTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    if (!!a.done !== !!b.done) return a.done ? 1 : -1; // pending first
+    const ad = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+    const bd = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+    if (ad !== bd) return ad - bd; // soonest due date first
+    return b.created_at - a.created_at;
+  });
+}
+
+app.get('/api/tasks', authMiddleware, (req, res) => {
+  res.json({ tasks: sortTasks(db.tasks).map(publicTask) });
+});
+
+app.post('/api/tasks', authMiddleware, (req, res) => {
+  const { title, assignedTo, dueDate } = req.body || {};
+  const trimmedTitle = typeof title === 'string' ? title.trim() : '';
+  if (!trimmedTitle) return res.status(400).json({ error: 'Give the task a title.' });
+
+  const assignee = findUserById(assignedTo);
+  if (!assignee) return res.status(400).json({ error: 'Pick who this task is for.' });
+
+  let cleanDueDate = null;
+  if (typeof dueDate === 'string' && dueDate.trim()) {
+    if (isNaN(new Date(dueDate).getTime())) return res.status(400).json({ error: 'That due date looks invalid.' });
+    cleanDueDate = dueDate.trim();
+  }
+
+  const task = {
+    id: uuid(),
+    title: trimmedTitle,
+    assigned_to: assignee.id,
+    assigned_by: req.user.id,
+    due_date: cleanDueDate,
+    done: false,
+    created_at: Date.now(),
+    completed_at: null,
+  };
+  db.tasks.push(task);
+
+  if (assignee.id !== req.user.id) {
+    addNotification(
+      assignee.id,
+      'task',
+      `${req.user.name} assigned you a task: "${trimmedTitle}"${cleanDueDate ? ` — due ${cleanDueDate}` : ''}`
+    );
+  }
+  save();
+
+  const publicVersion = publicTask(task);
+  io.emit('task:new', publicVersion);
+  res.json({ ok: true, task: publicVersion });
+
+  if (assignee.id !== req.user.id) {
+    sendPushToUsers({
+      onlyUserId: assignee.id,
+      title: `${req.user.name} assigned you a task`,
+      body: trimmedTitle,
+      tag: 'gp-task',
+    }).catch(() => {});
+  }
+});
+
+app.post('/api/tasks/:id/toggle', authMiddleware, (req, res) => {
+  const task = db.tasks.find(t => t.id === req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found.' });
+
+  task.done = !task.done;
+  task.completed_at = task.done ? Date.now() : null;
+  save();
+
+  const publicVersion = publicTask(task);
+  io.emit('task:updated', publicVersion);
+  res.json({ ok: true, task: publicVersion });
+});
+
+app.delete('/api/tasks/:id', authMiddleware, (req, res) => {
+  db.tasks = db.tasks.filter(t => t.id !== req.params.id);
+  save();
+  io.emit('task:deleted', { id: req.params.id });
+  res.json({ ok: true });
+});
+
+// ---------- In-app notifications feed (Home tab) ----------
+app.get('/api/notifications', authMiddleware, (req, res) => {
+  const mine = db.notifications
+    .filter(n => n.user_id === req.user.id)
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, 20);
+
+  const result = mine.map(n => ({ id: n.id, type: n.type, text: n.text, createdAt: n.created_at, read: n.read }));
+
+  // Viewing the feed marks these as read, the same way opening a chat app
+  // clears its unread badge.
+  let changed = false;
+  for (const n of mine) { if (!n.read) { n.read = true; changed = true; } }
+  if (changed) save();
+
+  res.json({ notifications: result });
+});
+
+// ---------- Public profile (Instagram-style "view someone's profile") ----------
+// Read-only from the viewer's side: their posts, their tasks, and their
+// balance — but never their email, password, or anything editable.
+app.get('/api/users/:id/profile', authMiddleware, (req, res) => {
+  const user = findUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+
+  const posts = db.posts
+    .filter(p => p.user_id === user.id)
+    .sort((a, b) => b.created_at - a.created_at)
+    .map(p => publicPost(p, req.user.id));
+
+  const tasks = sortTasks(db.tasks.filter(t => t.assigned_to === user.id)).map(publicTask);
+
+  const { net, settlements } = computeBalances();
+  const theirNet = Math.round((net[user.id] || 0) * 100) / 100;
+  const theirSettlements = settlements
+    .filter(s => s.from === user.id || s.to === user.id)
+    .map(s => ({
+      from: publicUser(findUserById(s.from)),
+      to: publicUser(findUserById(s.to)),
+      amount: s.amount,
+    }));
+
+  res.json({
+    user: publicUser(user),
+    joinedAt: user.created_at,
+    isMe: user.id === req.user.id,
+    posts,
+    tasks,
+    balance: { net: theirNet, settlements: theirSettlements },
+  });
+});
+
 // ---------- Media uploads (used by chat attachments and feed posts) ----------
 app.post('/api/upload', authMiddleware, (req, res) => {
   upload.single('file')(req, res, (err) => {
@@ -429,6 +630,12 @@ app.post('/api/expenses', authMiddleware, (req, res) => {
     created_at: Date.now(),
   };
   db.expenses.push(expense);
+
+  for (const uid of split) {
+    if (uid !== req.user.id) {
+      addNotification(uid, 'expense', `${req.user.name} added an expense: "${expense.description}" — Rs. ${expense.amount.toFixed(2)}`);
+    }
+  }
   save();
 
   const balances = computeBalances();
