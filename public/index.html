@@ -25,7 +25,7 @@
 <div id="auth-screen" class="screen">
   <div class="auth-card">
     <h1><img src="/icon-192.png" alt="" class="brand-logo" /> Gujjar Penthouse</h1>
-    <p class="subtitle">Shared expenses &amp; chat for the flat</p>
+    <p class="subtitle">Home, feed &amp; chat for the flat</p>
 
     <div class="tabs">
       <button class="tab-btn active" data-tab="login">Log in</button>
@@ -104,8 +104,6 @@
 
   <nav class="tabbar">
     <button class="page-btn active" data-page="home"><span class="page-btn-icon">🏠</span><span class="page-btn-label">Home</span></button>
-    <button class="page-btn" data-page="expenses"><span class="page-btn-icon">💸</span><span class="page-btn-label">Expenses</span></button>
-    <button class="page-btn" data-page="balances"><span class="page-btn-icon">📊</span><span class="page-btn-label">Balances</span></button>
     <button class="page-btn" data-page="feed"><span class="page-btn-icon">📸</span><span class="page-btn-label">Feed</span></button>
     <button class="page-btn" data-page="chat"><span class="page-btn-icon">💬</span><span class="page-btn-label">Chat</span></button>
   </nav>
@@ -123,9 +121,12 @@
         <ul id="home-notifications-list" class="notification-list"></ul>
       </div>
 
-      <div class="balance-line-card" id="home-balance-line">
-        <span class="balance-line-icon">💰</span>
-        <span id="home-balance-text">Loading your balance…</span>
+      <div class="card">
+        <div class="card-header-row">
+          <h2>Polls</h2>
+          <button type="button" id="new-poll-btn" class="text-btn">+ New poll</button>
+        </div>
+        <ul id="polls-list" class="poll-list"></ul>
       </div>
 
       <div class="card">
@@ -145,43 +146,6 @@
         <h2>All house tasks</h2>
         <ul id="all-tasks-list" class="task-list"></ul>
       </div>
-    </div>
-  </section>
-
-  <!-- Expenses page -->
-  <section id="page-expenses" class="page">
-    <form id="expense-form" class="card">
-      <h2>Add an expense</h2>
-      <input type="text" id="exp-description" placeholder="What was it for? (e.g. Groceries)" required />
-      <div class="amount-input-wrap">
-        <span class="currency-prefix">Rs.</span>
-        <input type="number" id="exp-amount" placeholder="0.00" min="0.01" step="0.01" required />
-      </div>
-      <div class="split-label">Paid by you, split with:</div>
-      <div id="split-checkboxes" class="split-list"></div>
-      <button type="submit">Add expense</button>
-      <p class="error" id="expense-error"></p>
-    </form>
-
-    <div class="card">
-      <h2>Recent expenses</h2>
-      <ul id="expense-list" class="expense-list"></ul>
-    </div>
-  </section>
-
-  <!-- Balances page -->
-  <section id="page-balances" class="page">
-    <div class="summary-banner">
-      <div class="small-label" id="balance-banner-label">Your balance</div>
-      <div class="big-number" id="balance-banner-amount">Rs. 0.00</div>
-    </div>
-    <div class="card">
-      <h2>Who owes whom</h2>
-      <ul id="settlements-list" class="settlements-list"></ul>
-    </div>
-    <div class="card">
-      <h2>Net balance per person</h2>
-      <ul id="net-list" class="net-list"></ul>
     </div>
   </section>
 
@@ -237,6 +201,10 @@
       </div>
 
       <div id="chat-messages" class="chat-messages"></div>
+      <div id="typing-indicator" class="typing-indicator hidden">
+        <div id="typing-indicator-avatars" class="typing-indicator-avatars"></div>
+        <div class="typing-indicator-dots"><span></span><span></span><span></span></div>
+      </div>
       <div id="chat-reply-preview" class="chat-reply-preview hidden">
         <div class="chat-reply-preview-bar"></div>
         <div class="chat-reply-preview-body">
@@ -316,6 +284,39 @@
 
       <button type="button" id="logout-btn" class="danger-btn full-width-btn">Log out</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== NEW POLL MODAL ===== -->
+<div id="new-poll-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Start a poll</h2>
+      <button type="button" class="modal-close-btn" data-close-modal="new-poll-modal">✕</button>
+    </div>
+    <form id="new-poll-form" class="auth-form">
+      <label class="field-label">Question</label>
+      <input type="text" id="poll-question-input" placeholder="What do you want to ask?" required maxlength="200" />
+
+      <label class="field-label">Options</label>
+      <div id="poll-options-list" class="poll-options-list">
+        <input type="text" class="poll-option-input" placeholder="Option 1" required maxlength="80" />
+        <input type="text" class="poll-option-input" placeholder="Option 2" required maxlength="80" />
+      </div>
+      <button type="button" id="poll-add-option-btn" class="text-btn">+ Add option</button>
+
+      <label class="field-label">Voting closes in</label>
+      <select id="poll-duration-input">
+        <option value="60">1 hour</option>
+        <option value="360">6 hours</option>
+        <option value="1440" selected>1 day</option>
+        <option value="4320">3 days</option>
+        <option value="10080">1 week</option>
+      </select>
+
+      <button type="submit">Start poll</button>
+      <p class="error" id="poll-error"></p>
+    </form>
   </div>
 </div>
 
