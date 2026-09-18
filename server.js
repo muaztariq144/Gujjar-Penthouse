@@ -1,4 +1,4 @@
-// Gujjar Penthouse — shared expense tracker + chat
+// Gujjar Penthouse — household social app (feed, chat, tasks, polls, calling)
 // Beginner-friendly, single-file backend. No native/compiled dependencies
 // (data is stored in a plain JSON file), so `npm install` works everywhere.
 
@@ -209,56 +209,6 @@ function authMiddleware(req, res, next) {
   if (!user) return res.status(401).json({ error: 'Not logged in.' });
   req.user = user;
   next();
-}
-
-// Greedy debt simplification: turns net balances into a short list of
-// "X owes Y amount" transactions.
-function simplifyDebts(netBalances) {
-  const creditors = [];
-  const debtors = [];
-  for (const [userId, amount] of Object.entries(netBalances)) {
-    const rounded = Math.round(amount * 100) / 100;
-    if (rounded > 0.01) creditors.push({ userId, amount: rounded });
-    else if (rounded < -0.01) debtors.push({ userId, amount: -rounded });
-  }
-  creditors.sort((a, b) => b.amount - a.amount);
-  debtors.sort((a, b) => b.amount - a.amount);
-
-  const settlements = [];
-  let i = 0, j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const debtor = debtors[i];
-    const creditor = creditors[j];
-    const amount = Math.min(debtor.amount, creditor.amount);
-    if (amount > 0.01) {
-      settlements.push({ from: debtor.userId, to: creditor.userId, amount: Math.round(amount * 100) / 100 });
-    }
-    debtor.amount -= amount;
-    creditor.amount -= amount;
-    if (debtor.amount <= 0.01) i++;
-    if (creditor.amount <= 0.01) j++;
-  }
-  return settlements;
-}
-
-function computeBalances() {
-  const net = {};
-  for (const u of db.users) net[u.id] = 0;
-
-  for (const exp of db.expenses) {
-    const splitAmong = exp.split_among;
-    if (!splitAmong || splitAmong.length === 0) continue;
-    const share = exp.amount / splitAmong.length;
-    if (net[exp.paid_by] === undefined) net[exp.paid_by] = 0;
-    net[exp.paid_by] += exp.amount;
-    for (const uid of splitAmong) {
-      if (net[uid] === undefined) net[uid] = 0;
-      net[uid] -= share;
-    }
-  }
-
-  const settlements = simplifyDebts(net);
-  return { net, settlements };
 }
 
 // ---------- Auth routes ----------
@@ -533,8 +483,8 @@ app.get('/api/notifications', authMiddleware, (req, res) => {
 });
 
 // ---------- Public profile (Instagram-style "view someone's profile") ----------
-// Read-only from the viewer's side: their posts, their tasks, and their
-// balance — but never their email, password, or anything editable.
+// Read-only from the viewer's side: their posts and their tasks — but never
+// their email, password, or anything editable.
 app.get('/api/users/:id/profile', authMiddleware, (req, res) => {
   const user = findUserById(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found.' });
@@ -546,23 +496,12 @@ app.get('/api/users/:id/profile', authMiddleware, (req, res) => {
 
   const tasks = sortTasks(db.tasks.filter(t => t.assigned_to === user.id)).map(publicTask);
 
-  const { net, settlements } = computeBalances();
-  const theirNet = Math.round((net[user.id] || 0) * 100) / 100;
-  const theirSettlements = settlements
-    .filter(s => s.from === user.id || s.to === user.id)
-    .map(s => ({
-      from: publicUser(findUserById(s.from)),
-      to: publicUser(findUserById(s.to)),
-      amount: s.amount,
-    }));
-
   res.json({
     user: publicUser(user),
     joinedAt: user.created_at,
     isMe: user.id === req.user.id,
     posts,
     tasks,
-    balance: { net: theirNet, settlements: theirSettlements },
   });
 });
 
@@ -612,64 +551,121 @@ app.post('/api/push/unsubscribe', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Expenses ----------
-app.get('/api/expenses', authMiddleware, (req, res) => {
-  const expenses = [...db.expenses].sort((a, b) => b.created_at - a.created_at);
-  res.json({ expenses });
+// ---------- Polls (any member can start a referendum with a time limit) ----------
+function publicPoll(p, viewerId) {
+  const now = Date.now();
+  const closed = now >= p.expires_at;
+  const totalVotes = p.options.reduce((sum, o) => sum + o.votes.length, 0);
+  return {
+    id: p.id,
+    question: p.question,
+    options: p.options.map((o, idx) => ({
+      idx,
+      text: o.text,
+      voteCount: o.votes.length,
+      percent: totalVotes ? Math.round((o.votes.length / totalVotes) * 100) : 0,
+    })),
+    totalVotes,
+    createdBy: publicUser(findUserById(p.created_by)) || null,
+    createdAt: p.created_at,
+    expiresAt: p.expires_at,
+    closed,
+    myVote: viewerId != null ? (p.options.findIndex(o => o.votes.includes(viewerId)) === -1 ? null : p.options.findIndex(o => o.votes.includes(viewerId))) : null,
+  };
+}
+
+function sortPolls(polls) {
+  return [...polls].sort((a, b) => {
+    const aClosed = Date.now() >= a.expires_at;
+    const bClosed = Date.now() >= b.expires_at;
+    if (aClosed !== bClosed) return aClosed ? 1 : -1; // open polls first
+    return b.created_at - a.created_at;
+  });
+}
+
+app.get('/api/polls', authMiddleware, (req, res) => {
+  res.json({ polls: sortPolls(db.polls).map(p => publicPoll(p, req.user.id)) });
 });
 
-app.post('/api/expenses', authMiddleware, (req, res) => {
-  const { description, amount, splitAmong } = req.body || {};
-  const amt = Number(amount);
-  if (!description || !amt || amt <= 0) {
-    return res.status(400).json({ error: 'Description and a positive amount are required.' });
-  }
-  const allUserIds = db.users.map(u => u.id);
-  const split = Array.isArray(splitAmong) && splitAmong.length > 0
-    ? splitAmong.filter(id => allUserIds.includes(id))
-    : allUserIds;
+app.post('/api/polls', authMiddleware, (req, res) => {
+  const { question, options, durationMinutes } = req.body || {};
+  const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
+  if (!trimmedQuestion) return res.status(400).json({ error: 'Give the poll a question.' });
 
-  const expense = {
+  const cleanOptions = Array.isArray(options)
+    ? options.map(o => (typeof o === 'string' ? o.trim() : '')).filter(Boolean).slice(0, 8)
+    : [];
+  if (cleanOptions.length < 2) return res.status(400).json({ error: 'Add at least 2 options.' });
+
+  const minutes = Number(durationMinutes);
+  const durMs = Number.isFinite(minutes) && minutes > 0 ? minutes * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const cappedMs = Math.min(durMs, 30 * 24 * 60 * 60 * 1000); // cap at 30 days
+
+  const poll = {
     id: uuid(),
-    description: description.trim(),
-    amount: amt,
-    paid_by: req.user.id,
-    split_among: split,
+    question: trimmedQuestion,
+    options: cleanOptions.map(text => ({ text, votes: [] })),
+    created_by: req.user.id,
     created_at: Date.now(),
+    expires_at: Date.now() + cappedMs,
   };
-  db.expenses.push(expense);
+  db.polls.push(poll);
 
-  for (const uid of split) {
-    if (uid !== req.user.id) {
-      addNotification(uid, 'expense', `${req.user.name} added an expense: "${expense.description}" — Rs. ${expense.amount.toFixed(2)}`);
-    }
+  for (const u of db.users) {
+    if (u.id === req.user.id) continue;
+    addNotification(u.id, 'poll', `${req.user.name} started a poll: "${trimmedQuestion}"`);
   }
   save();
 
-  const balances = computeBalances();
-  io.emit('balances:update', balances);
-  io.emit('expense:new', expense);
-  res.json({ ok: true, id: expense.id });
+  const publicVersion = publicPoll(poll, req.user.id);
+  io.emit('poll:new', publicVersion);
+  res.json({ ok: true, poll: publicVersion });
 
   sendPushToUsers({
     excludeUserId: req.user.id,
-    title: `${req.user.name} added an expense`,
-    body: `${expense.description} — Rs. ${expense.amount.toFixed(2)}`,
-    tag: 'gp-expense',
+    title: `${req.user.name} started a poll`,
+    body: trimmedQuestion,
+    tag: 'gp-poll',
   }).catch(() => {});
 });
 
-app.delete('/api/expenses/:id', authMiddleware, (req, res) => {
-  db.expenses = db.expenses.filter(e => e.id !== req.params.id);
+app.post('/api/polls/:id/vote', authMiddleware, (req, res) => {
+  const poll = db.polls.find(p => p.id === req.params.id);
+  if (!poll) return res.status(404).json({ error: 'Poll not found.' });
+  if (Date.now() >= poll.expires_at) return res.status(400).json({ error: 'This poll has closed.' });
+
+  const optionIdx = Number(req.body?.optionIdx);
+  if (!Number.isInteger(optionIdx) || optionIdx < 0 || optionIdx >= poll.options.length) {
+    return res.status(400).json({ error: 'Invalid option.' });
+  }
+
+  // One vote per member — voting again changes their vote.
+  for (const opt of poll.options) {
+    const idx = opt.votes.indexOf(req.user.id);
+    if (idx !== -1) opt.votes.splice(idx, 1);
+  }
+  poll.options[optionIdx].votes.push(req.user.id);
   save();
-  const balances = computeBalances();
-  io.emit('balances:update', balances);
-  io.emit('expense:deleted', { id: req.params.id });
-  res.json({ ok: true });
+
+  // Broadcast the fresh tallies to everyone (per-viewer myVote is computed client-side isn't possible,
+  // so we emit the raw counts and let each client keep its own "myVote" from its own action/state).
+  io.emit('poll:updated', {
+    id: poll.id,
+    options: poll.options.map((o, idx) => ({ idx, voteCount: o.votes.length })),
+    totalVotes: poll.options.reduce((sum, o) => sum + o.votes.length, 0),
+  });
+  res.json({ ok: true, poll: publicPoll(poll, req.user.id) });
 });
 
-app.get('/api/balances', authMiddleware, (req, res) => {
-  res.json(computeBalances());
+app.delete('/api/polls/:id', authMiddleware, (req, res) => {
+  const poll = db.polls.find(p => p.id === req.params.id);
+  if (!poll) return res.status(404).json({ error: 'Poll not found.' });
+  if (poll.created_by !== req.user.id) return res.status(403).json({ error: 'You can only delete polls you started.' });
+
+  db.polls = db.polls.filter(p => p.id !== req.params.id);
+  save();
+  io.emit('poll:deleted', { id: req.params.id });
+  res.json({ ok: true });
 });
 
 // ---------- Chat ----------
@@ -829,6 +825,24 @@ io.use((socket, next) => {
   next();
 });
 
+// ---------- Chat typing indicator ----------
+// Map of socket.id -> { userId, userName, avatarUrl }, everyone currently typing in chat.
+const typingUsers = new Map();
+
+function broadcastTyping() {
+  // De-dupe by userId in case someone has the app open on two devices.
+  const seen = new Map();
+  for (const info of typingUsers.values()) seen.set(info.userId, info);
+  io.emit('chat:typing-users', [...seen.values()]);
+}
+
+function stopTyping(socket) {
+  if (typingUsers.has(socket.id)) {
+    typingUsers.delete(socket.id);
+    broadcastTyping();
+  }
+}
+
 // ---------- Voice/video call room (WebRTC signaling only — no media passes through this server) ----------
 // Map of socket.id -> { userId, userName }, everyone currently in the shared call.
 const callParticipants = new Map();
@@ -857,6 +871,9 @@ io.on('connection', (socket) => {
 
     const trimmedText = typeof text === 'string' ? text.trim() : '';
     if (!trimmedText && !attachment) return; // nothing to send
+
+    // Sending a message implies they're done typing.
+    stopTyping(socket);
 
     // Swipe-to-reply: snapshot the quoted message's text/sender at send time,
     // so the quote still reads correctly even if the original is ever deleted.
@@ -944,6 +961,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // WhatsApp-style typing indicator. The client sends "start" on keystroke
+  // (throttled) and "stop" after a short pause or on send/blur.
+  socket.on('chat:typing-start', () => {
+    typingUsers.set(socket.id, { userId: socket.user.id, userName: socket.user.name, avatarUrl: socket.user.avatarUrl || null });
+    broadcastTyping();
+  });
+
+  socket.on('chat:typing-stop', () => stopTyping(socket));
+
   socket.on('call:leave', () => leaveCall(socket));
 
   // Pure relay: forward WebRTC offers/answers/ICE candidates to the intended peer only.
@@ -962,7 +988,10 @@ io.on('connection', (socket) => {
     io.to(to).emit('call:ice-candidate', { from: socket.id, candidate });
   });
 
-  socket.on('disconnect', () => leaveCall(socket));
+  socket.on('disconnect', () => {
+    leaveCall(socket);
+    stopTyping(socket);
+  });
 });
 
 server.listen(PORT, () => {
