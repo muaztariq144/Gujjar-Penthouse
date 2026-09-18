@@ -110,6 +110,229 @@
 :root[data-theme="dark"] .split-list label,
 :root[data-theme="dark"] .attach-btn { background: var(--bg-subtle); }
 
+/* =========================================================================
+   Time-limited "Baraat" theme — Ateeb Saeed's wedding, live through Nov 3.
+   Desi wedding jewel tones (maroon, gold, magenta) layered on top of the
+   normal design system via CSS variable overrides, so nothing else has to
+   change: every component that already uses --accent/--brand-gradient/etc
+   just picks up the festive palette automatically while this is active,
+   and reverts on its own once data-event-theme stops being set (see the
+   date check in index.html's head).
+   ========================================================================= */
+:root[data-event-theme="baraat"] {
+  --accent: #A31545;
+  --accent-dark: #7A0F35;
+  --accent-soft: rgba(163, 21, 69, 0.12);
+  --accent-glow: rgba(201, 162, 39, 0.45);
+  --brand-gradient: linear-gradient(135deg, #C9A227 0%, #A31545 55%, #E0218A 100%);
+
+  --positive: #0F8A5F;
+  --positive-soft: rgba(15, 138, 95, 0.12);
+
+  --bg: #FFF8EE;
+  --bg-subtle: #FBEFDC;
+  --bg-subtle-hover: #F5E4C8;
+  --border: rgba(163, 21, 69, 0.12);
+
+  --bubble-out: #FBE3EC;
+  --bubble-out-text: #7A0F35;
+
+  --header-bg: #3A0A1E;
+
+  /* A very soft, tiled mehndi/paisley-inspired pattern behind everything. */
+  --event-pattern:
+    radial-gradient(circle at 12px 12px, rgba(201, 162, 39, 0.16) 0 4px, transparent 5px),
+    radial-gradient(circle at 34px 34px, rgba(163, 21, 69, 0.10) 0 3px, transparent 4px);
+}
+
+:root[data-theme="dark"][data-event-theme="baraat"] {
+  --accent: #FF7FAE;
+  --accent-dark: #FFB0CE;
+  --accent-soft: rgba(255, 127, 174, 0.16);
+  --accent-glow: rgba(230, 184, 74, 0.4);
+  --brand-gradient: linear-gradient(135deg, #E6B84A 0%, #C7245B 55%, #FF6FB0 100%);
+
+  --positive: #33D497;
+  --positive-soft: rgba(51, 212, 151, 0.14);
+
+  --bg: #1A0E12;
+  --bg-elevated: #241017;
+  --bg-subtle: #2C1219;
+  --bg-subtle-hover: #35161E;
+  --card: #241017;
+  --border: rgba(255, 176, 206, 0.12);
+
+  --bubble-out: #4A1230;
+  --bubble-out-text: #FFDCEA;
+
+  --header-bg: #140A0D;
+
+  --event-pattern:
+    radial-gradient(circle at 12px 12px, rgba(230, 184, 74, 0.14) 0 4px, transparent 5px),
+    radial-gradient(circle at 34px 34px, rgba(255, 127, 174, 0.10) 0 3px, transparent 4px);
+}
+
+:root[data-event-theme="baraat"] body {
+  background-image: var(--event-pattern);
+  background-size: 46px 46px;
+}
+
+/* A gentle sparkle behind the home greeting card, and a gold ring around
+   the brand logo — small, tasteful signs this is a special occasion. */
+:root[data-event-theme="baraat"] .home-greeting-card {
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(201, 162, 39, 0.35);
+}
+:root[data-event-theme="baraat"] .brand-logo-header {
+  box-shadow: 0 0 0 2px #C9A227;
+  border-radius: 50%;
+}
+
+/* Bhangra dancer — a small animated desi guy in shalwar kameez + turban,
+   living in the topbar between the brand button and the icon cluster.
+   Purely decorative, never blocking taps. */
+.event-dancer {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 47px;
+  margin: 0 2px;
+  pointer-events: none;
+  z-index: 1;
+}
+.event-dancer.hidden { display: none; }
+
+.dancer-svg { display: block; overflow: visible; }
+
+.dancer-shadow { fill: rgba(0, 0, 0, 0.18); }
+.dancer-kurta { fill: #1E7A52; }
+.dancer-head { fill: #C98A5E; }
+.dancer-turban { fill: #A31545; }
+.dancer-turban-tail { fill: #A31545; }
+.dancer-turban-jewel { fill: #C9A227; }
+.dancer-arm rect { fill: #1E7A52; }
+.dancer-leg rect { fill: #2B2B2B; }
+
+:root[data-theme="dark"] .dancer-kurta,
+:root[data-theme="dark"] .dancer-arm rect { fill: #2FA374; }
+:root[data-theme="dark"] .dancer-leg rect { fill: #1A1A1A; }
+
+/* The whole figure bounces up and down like a bhangra beat. */
+.dancer-svg {
+  animation: gp-dancer-bounce 0.7s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: bottom center;
+}
+@keyframes gp-dancer-bounce {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-5px) rotate(2deg); }
+}
+
+/* Arms swing up alternately, the classic bhangra move. */
+.dancer-arm {
+  transform-box: fill-box;
+  animation: gp-dancer-arm-left 0.7s ease-in-out infinite;
+}
+.dancer-arm-left { transform-origin: top center; }
+.dancer-arm-right { transform-origin: top center; animation-name: gp-dancer-arm-right; }
+@keyframes gp-dancer-arm-left {
+  0%, 100% { transform: rotate(-10deg); }
+  50% { transform: rotate(-55deg); }
+}
+@keyframes gp-dancer-arm-right {
+  0%, 100% { transform: rotate(55deg); }
+  50% { transform: rotate(10deg); }
+}
+
+/* Legs kick out slightly opposite each other. */
+.dancer-leg {
+  transform-box: fill-box;
+  transform-origin: top center;
+  animation: gp-dancer-leg-left 0.7s ease-in-out infinite;
+}
+.dancer-leg-left { animation-name: gp-dancer-leg-left; }
+.dancer-leg-right { animation-name: gp-dancer-leg-right; }
+@keyframes gp-dancer-leg-left {
+  0%, 100% { transform: rotate(6deg); }
+  50% { transform: rotate(-10deg); }
+}
+@keyframes gp-dancer-leg-right {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(10deg); }
+}
+
+.dancer-shadow {
+  animation: gp-dancer-shadow 0.7s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes gp-dancer-shadow {
+  0%, 100% { transform: scaleX(1); opacity: 0.18; }
+  50% { transform: scaleX(0.75); opacity: 0.1; }
+}
+
+/* Speech bubble that "pops" in and out periodically to announce the wedding. */
+.event-speech-bubble {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%) scale(0);
+  transform-origin: top center;
+  margin-top: 5px;
+  width: max-content;
+  background: #fff;
+  color: #7A0F35;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-align: center;
+  padding: 5px 8px;
+  border-radius: 11px;
+  box-shadow: var(--shadow-md);
+  animation: gp-bubble-pop 6s ease-in-out infinite;
+}
+.event-speech-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: #fff;
+}
+:root[data-theme="dark"] .event-speech-bubble { background: #2A2A2E; color: #FFDCEA; }
+:root[data-theme="dark"] .event-speech-bubble::after { border-bottom-color: #2A2A2E; }
+
+@keyframes gp-bubble-pop {
+  0%   { opacity: 0; transform: translateX(-50%) scale(0); }
+  6%   { opacity: 1; transform: translateX(-50%) scale(1.08); }
+  10%  { opacity: 1; transform: translateX(-50%) scale(1); }
+  38%  { opacity: 1; transform: translateX(-50%) scale(1); }
+  46%  { opacity: 0; transform: translateX(-50%) scale(0.85); }
+  100% { opacity: 0; transform: translateX(-50%) scale(0.85); }
+}
+
+@media (max-width: 380px) {
+  .event-dancer { width: 32px; height: 38px; margin: 0; }
+  .event-speech-bubble { font-size: 9px; padding: 4px 7px; }
+}
+
+/* Celebration banner on Home — countdown before the Baraat, "Mubarak" on the day. */
+.event-banner {
+  background: var(--brand-gradient);
+  color: white;
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  font-weight: 700;
+  font-size: 13.5px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  animation: gp-fade-up 0.25s var(--ease);
+  position: relative;
+  z-index: 2;
+}
+
 /* ---------- Reset ---------- */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
