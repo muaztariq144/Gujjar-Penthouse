@@ -187,34 +187,65 @@
   border-radius: 50%;
 }
 
-/* Bhangra dancer — a small animated desi guy in shalwar kameez + turban,
-   living in the topbar between the brand button and the icon cluster.
-   Purely decorative, never blocking taps. */
+/* Bhangra dancers — a small animated desi couple in shalwar kameez, dancing
+   together in the topbar between the brand button and the icon cluster.
+   The whole block stretches to the topbar's height so the speech bubble sits
+   up top (out of the way) and the dancers stay pinned to the bottom, like
+   they're dancing on the header's "floor". Purely decorative, never
+   blocking taps. */
 .event-dancer {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  align-self: stretch;
   flex-shrink: 0;
-  width: 40px;
-  height: 47px;
+  width: 78px;
   margin: 0 2px;
+  padding-top: 2px;
   pointer-events: none;
   z-index: 1;
+  overflow: visible;
 }
 .event-dancer.hidden { display: none; }
 
-.dancer-svg { display: block; overflow: visible; }
+.dancer-pair {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  perspective: 240px;
+}
 
-.dancer-shadow { fill: rgba(0, 0, 0, 0.18); }
-.dancer-kurta { fill: #1E7A52; }
-.dancer-head { fill: #C98A5E; }
-.dancer-turban { fill: #A31545; }
-.dancer-turban-tail { fill: #A31545; }
-.dancer-turban-jewel { fill: #C9A227; }
-.dancer-arm rect { fill: #1E7A52; }
+.dancer-svg { display: block; overflow: visible; transform-style: preserve-3d; }
+
+.dancer-shadow { fill: rgba(0, 0, 0, 0.22); }
+.dancer-kurta { fill: url(#grad-kurta-green); }
+.dancer-head { fill: url(#grad-skin); }
+.dancer-turban { fill: url(#grad-turban); }
+.dancer-turban-tail { fill: url(#grad-turban); }
+.dancer-turban-jewel { fill: #F4D35E; }
+.dancer-arm rect { fill: url(#grad-kurta-green); }
 .dancer-leg rect { fill: #2B2B2B; }
 
+.dancer-kameez { fill: url(#grad-kameez-pink); }
+.dancer-dupatta { fill: #F4D35E; }
+.dancer-hair, .dancer-hair-bun { fill: url(#grad-hair); }
+.dancer-earring { fill: #F4D35E; }
+.dancer-arm-g rect { fill: url(#grad-kameez-pink); }
+.dancer-leg-g rect { fill: #2B2B2B; }
+
+.dancer-kurta, .dancer-kameez, .dancer-turban, .dancer-head,
+.dancer-arm rect, .dancer-arm-g rect {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
 :root[data-theme="dark"] .dancer-kurta,
-:root[data-theme="dark"] .dancer-arm rect { fill: #2FA374; }
-:root[data-theme="dark"] .dancer-leg rect { fill: #1A1A1A; }
+:root[data-theme="dark"] .dancer-arm rect { fill: url(#grad-kurta-green-dark); }
+:root[data-theme="dark"] .dancer-leg rect,
+:root[data-theme="dark"] .dancer-leg-g rect { fill: #1A1A1A; }
+:root[data-theme="dark"] .dancer-kameez,
+:root[data-theme="dark"] .dancer-arm-g rect { fill: url(#grad-kameez-pink-dark); }
 
 /* The whole figure bounces up and down like a bhangra beat. */
 .dancer-svg {
@@ -222,18 +253,21 @@
   transform-box: fill-box;
   transform-origin: bottom center;
 }
+.dancer-svg-girl { animation-delay: 0.35s; }
+
 @keyframes gp-dancer-bounce {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50% { transform: translateY(-5px) rotate(2deg); }
+  0%, 100% { transform: translateY(0) rotate(-2deg) rotateY(-14deg); }
+  50% { transform: translateY(-5px) rotate(2deg) rotateY(14deg); }
 }
 
 /* Arms swing up alternately, the classic bhangra move. */
-.dancer-arm {
+.dancer-arm, .dancer-arm-g {
   transform-box: fill-box;
   animation: gp-dancer-arm-left 0.7s ease-in-out infinite;
 }
-.dancer-arm-left { transform-origin: top center; }
-.dancer-arm-right { transform-origin: top center; animation-name: gp-dancer-arm-right; }
+.dancer-arm-left, .dancer-arm-g-left { transform-origin: top center; }
+.dancer-arm-right, .dancer-arm-g-right { transform-origin: top center; animation-name: gp-dancer-arm-right; }
+.dancer-arm-g-left, .dancer-arm-g-right { animation-delay: 0.35s; }
 @keyframes gp-dancer-arm-left {
   0%, 100% { transform: rotate(-10deg); }
   50% { transform: rotate(-55deg); }
@@ -244,13 +278,14 @@
 }
 
 /* Legs kick out slightly opposite each other. */
-.dancer-leg {
+.dancer-leg, .dancer-leg-g {
   transform-box: fill-box;
   transform-origin: top center;
   animation: gp-dancer-leg-left 0.7s ease-in-out infinite;
 }
-.dancer-leg-left { animation-name: gp-dancer-leg-left; }
-.dancer-leg-right { animation-name: gp-dancer-leg-right; }
+.dancer-leg-left, .dancer-leg-g-left { animation-name: gp-dancer-leg-left; }
+.dancer-leg-right, .dancer-leg-g-right { animation-name: gp-dancer-leg-right; }
+.dancer-leg-g-left, .dancer-leg-g-right { animation-delay: 0.35s; }
 @keyframes gp-dancer-leg-left {
   0%, 100% { transform: rotate(6deg); }
   50% { transform: rotate(-10deg); }
@@ -265,56 +300,46 @@
   transform-box: fill-box;
   transform-origin: center;
 }
+.dancer-svg-girl .dancer-shadow { animation-delay: 0.35s; }
 @keyframes gp-dancer-shadow {
   0%, 100% { transform: scaleX(1); opacity: 0.18; }
   50% { transform: scaleX(0.75); opacity: 0.1; }
 }
 
-/* Speech bubble that "pops" in and out periodically to announce the wedding. */
+/* Speech bubble — sits still above the dancing pair (no popping/scaling),
+   announcing the wedding. */
 .event-speech-bubble {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%) scale(0);
-  transform-origin: top center;
-  margin-top: 5px;
+  position: relative;
   width: max-content;
+  max-width: 128px;
+  margin: 0 auto 3px;
   background: #fff;
   color: #7A0F35;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   line-height: 1.2;
-  white-space: nowrap;
   text-align: center;
   padding: 5px 8px;
   border-radius: 11px;
   box-shadow: var(--shadow-md);
-  animation: gp-bubble-pop 6s ease-in-out infinite;
 }
 .event-speech-bubble::after {
   content: '';
   position: absolute;
-  bottom: 100%;
+  top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-bottom-color: #fff;
+  border: 5px solid transparent;
+  border-top-color: #fff;
 }
 :root[data-theme="dark"] .event-speech-bubble { background: #2A2A2E; color: #FFDCEA; }
-:root[data-theme="dark"] .event-speech-bubble::after { border-bottom-color: #2A2A2E; }
-
-@keyframes gp-bubble-pop {
-  0%   { opacity: 0; transform: translateX(-50%) scale(0); }
-  6%   { opacity: 1; transform: translateX(-50%) scale(1.08); }
-  10%  { opacity: 1; transform: translateX(-50%) scale(1); }
-  38%  { opacity: 1; transform: translateX(-50%) scale(1); }
-  46%  { opacity: 0; transform: translateX(-50%) scale(0.85); }
-  100% { opacity: 0; transform: translateX(-50%) scale(0.85); }
-}
+:root[data-theme="dark"] .event-speech-bubble::after { border-top-color: #2A2A2E; }
 
 @media (max-width: 380px) {
-  .event-dancer { width: 32px; height: 38px; margin: 0; }
-  .event-speech-bubble { font-size: 9px; padding: 4px 7px; }
+  .event-dancer { width: 62px; margin: 0; }
+  .dancer-svg-boy { width: 26px !important; height: 31px !important; }
+  .dancer-svg-girl { width: 24px !important; height: 29px !important; }
+  .event-speech-bubble { font-size: 8.5px; padding: 4px 7px; max-width: 100px; }
 }
 
 /* Celebration banner on Home — countdown before the Baraat, "Mubarak" on the day. */
@@ -845,10 +870,176 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 /* ---------- Chat ---------- */
 .chat-card {
-  height: calc(100vh - 116px);
+  height: calc(100vh - var(--header-tabbar-h, 116px));
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  position: relative;
+}
+
+/* ---------- Chat kitten ---------- */
+/* A tiny orange cat that lives at the bottom of the chat, above the
+   composer, wandering around and occasionally reacting to messages.
+   Always pointer-events: none so it can never block a tap. */
+.chat-cat {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  width: 42px;
+  height: 30px;
+  pointer-events: none;
+  z-index: 3;
+  transform: translateX(var(--cat-x, 0px));
+  transition: transform 2.4s linear;
+  perspective: 200px;
+}
+.chat-cat.facing-left .cat-flip { transform: scaleX(-1); }
+.cat-flip { transform-style: preserve-3d; }
+
+.cat-svg { display: block; overflow: visible; }
+.cat-body, .cat-head, .cat-leg-dots ellipse, .cat-paw-front ellipse {
+  fill: url(#grad-cat-orange);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.28));
+}
+.cat-belly { fill: url(#grad-cat-belly); }
+.cat-ear { fill: url(#grad-cat-orange); }
+.cat-ear-inner { fill: #FFC2D6; }
+.cat-stripe { fill: none; stroke: #C9660D; stroke-width: 1.4; stroke-linecap: round; opacity: 0.55; }
+.cat-tail {
+  fill: none;
+  stroke: url(#grad-cat-orange);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: bottom right;
+}
+.cat-eye circle { fill: #2B1B12; }
+.cat-eye-closed { fill: none; stroke: #2B1B12; stroke-width: 1.2; stroke-linecap: round; opacity: 0; }
+.cat-whisker { fill: none; stroke: rgba(60, 30, 10, 0.55); stroke-width: 0.8; }
+.cat-nose { fill: #C9226B; }
+.cat-mouth-closed { fill: none; stroke: #2B1B12; stroke-width: 0.9; stroke-linecap: round; }
+.cat-mouth-open { fill: #6B2E1B; opacity: 0; }
+.cat-paw-front {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  transform: rotate(0deg);
+}
+
+/* -- Idle breathing, always on, so the cat never looks frozen -- */
+.cat-body { animation: gp-cat-breathe 2.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes gp-cat-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02, 0.97); }
+}
+
+/* -- Tail wag, speed depends on state -- */
+.cat-tail { animation: gp-cat-tail 1.6s ease-in-out infinite; }
+@keyframes gp-cat-tail {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(14deg); }
+}
+
+/* -- Speech / sleep bubbles, off by default -- */
+.cat-bubble {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  margin-bottom: 4px;
+  background: #fff;
+  color: #7A4A1E;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 9px;
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transform: scale(0.6);
+  transform-origin: bottom left;
+  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  white-space: nowrap;
+}
+:root[data-theme="dark"] .cat-bubble { background: #2A2A2E; color: #FFD9A0; }
+
+.cat-zzz {
+  position: absolute;
+  bottom: 100%;
+  right: 2px;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #8B98A6;
+  opacity: 0;
+  pointer-events: none;
+}
+.cat-zzz span { display: inline-block; animation: gp-cat-zzz 2.4s ease-in-out infinite; }
+.cat-zzz span:nth-child(1) { animation-delay: 0s; }
+.cat-zzz span:nth-child(2) { animation-delay: 0.3s; font-size: 12px; }
+.cat-zzz span:nth-child(3) { animation-delay: 0.6s; font-size: 8px; }
+@keyframes gp-cat-zzz {
+  0% { transform: translateY(0); opacity: 0; }
+  20% { opacity: 0.9; }
+  100% { transform: translateY(-10px); opacity: 0; }
+}
+
+/* -- Walking: quick little bob as it crosses the chat -- */
+.chat-cat.cat-walking .cat-body,
+.chat-cat.cat-walking .cat-head { animation: gp-cat-walk-bob 0.35s ease-in-out infinite; }
+.chat-cat.cat-walking .cat-tail { animation-duration: 0.5s; }
+.chat-cat.cat-walking .cat-leg-dots { animation: gp-cat-walk-bob 0.35s ease-in-out infinite reverse; }
+@keyframes gp-cat-walk-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.4px); }
+}
+
+/* -- Sitting: just idle breathing + tail, nothing extra -- */
+
+/* -- Sleeping: eyes closed, no tail wag, zzz floats up -- */
+.chat-cat.cat-sleep .cat-eye { opacity: 0; }
+.chat-cat.cat-sleep .cat-eye-closed { opacity: 1; }
+.chat-cat.cat-sleep .cat-tail { animation: none; transform: rotate(-2deg); }
+.chat-cat.cat-sleep .cat-body { animation-duration: 3.4s; }
+.chat-cat.cat-sleep .cat-zzz { opacity: 1; }
+.chat-cat.cat-sleep .cat-svg { transform: rotate(4deg) translateY(2px); }
+
+/* -- Cleaning: front paw wipes up over the face on a loop -- */
+.chat-cat.cat-clean .cat-eye { opacity: 0; }
+.chat-cat.cat-clean .cat-eye-closed { opacity: 1; }
+.chat-cat.cat-clean .cat-paw-front { animation: gp-cat-clean 0.9s ease-in-out infinite; }
+@keyframes gp-cat-clean {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  40% { transform: rotate(-55deg) translateY(-5px); }
+  70% { transform: rotate(-40deg) translateY(-4px); }
+}
+
+/* -- Meowing: mouth pops open, little head tilt, speech bubble shows -- */
+.chat-cat.cat-meow .cat-mouth-closed { opacity: 0; }
+.chat-cat.cat-meow .cat-mouth-open { opacity: 1; animation: gp-cat-meow-mouth 0.6s ease-in-out 2; }
+.chat-cat.cat-meow .cat-head { animation: gp-cat-meow-head 0.6s ease-in-out 2; }
+.chat-cat.cat-meow .cat-bubble { opacity: 1; transform: scale(1); }
+@keyframes gp-cat-meow-mouth {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.3); }
+}
+@keyframes gp-cat-meow-head {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-6deg); }
+}
+
+/* -- Dancing: same bouncy bhangra-ish energy as the wedding couple -- */
+.chat-cat.cat-dance .cat-svg {
+  animation: gp-cat-dance 0.5s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: bottom center;
+}
+.chat-cat.cat-dance .cat-tail { animation-duration: 0.3s; }
+@keyframes gp-cat-dance {
+  0%, 100% { transform: translateY(0) rotate(-8deg); }
+  50% { transform: translateY(-6px) rotate(8deg); }
+}
+
+@media (max-width: 380px) {
+  .chat-cat { width: 34px; height: 24px; }
+  .cat-svg { width: 34px !important; height: 24px !important; }
 }
 
 .chat-messages {
