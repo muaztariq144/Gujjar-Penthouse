@@ -187,21 +187,20 @@
   border-radius: 50%;
 }
 
-/* Bhangra dancers — a small animated desi couple in shalwar kameez, dancing
-   together in the topbar between the brand button and the icon cluster.
-   The whole block stretches to the topbar's height so the speech bubble sits
-   up top (out of the way) and the dancers stay pinned to the bottom, like
-   they're dancing on the header's "floor". Purely decorative, never
-   blocking taps. */
+/* Bhangra dancers — a small animated desi couple in shalwar kameez, running,
+   playing and dancing freely across a fixed-size "stage" in the topbar
+   between the brand button and the icon cluster. The speech bubble is a
+   separate, perfectly still element above the stage — it never moves and
+   its width is capped to the stage's own width, so it can never spill over
+   onto the profile picture next to it. Purely decorative, never blocking
+   taps. */
 .event-dancer {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  align-self: stretch;
   flex-shrink: 0;
-  width: 78px;
+  width: 92px;
   margin: 0 2px;
   padding-top: 2px;
   pointer-events: none;
@@ -210,12 +209,22 @@
 }
 .event-dancer.hidden { display: none; }
 
-.dancer-pair {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
+.event-stage {
+  position: relative;
+  width: 100%;
+  height: 40px;
   perspective: 240px;
 }
+
+.dancer-figure {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  transform: translateX(var(--dx, 0px));
+  transition: transform 1.5s ease-in-out;
+}
+.dancer-figure.facing-left .dancer-flip { transform: scaleX(-1); }
+.dancer-flip { transform-style: preserve-3d; }
 
 .dancer-svg { display: block; overflow: visible; transform-style: preserve-3d; }
 
@@ -306,22 +315,36 @@
   50% { transform: scaleX(0.75); opacity: 0.1; }
 }
 
-/* Speech bubble — sits still above the dancing pair (no popping/scaling),
-   announcing the wedding. */
+/* While a figure is running to a new spot on the stage, speed up its limbs
+   so it reads as running rather than dancing in place; once it arrives it
+   settles back to the normal bhangra beat above. */
+.dancer-figure.dancer-running .dancer-svg { animation-duration: 0.3s; }
+.dancer-figure.dancer-running .dancer-arm,
+.dancer-figure.dancer-running .dancer-arm-g { animation-duration: 0.28s; }
+.dancer-figure.dancer-running .dancer-leg,
+.dancer-figure.dancer-running .dancer-leg-g { animation-duration: 0.22s; }
+.dancer-figure.dancer-running .dancer-shadow { animation-duration: 0.22s; }
+
+/* Speech bubble — sits perfectly still above the stage (no popping,
+   scaling or moving with the dancers), announcing the wedding. Its width
+   is capped to the stage's own width so however the text wraps, it can
+   never spill sideways onto whatever sits next to it in the header. */
 .event-speech-bubble {
   position: relative;
-  width: max-content;
-  max-width: 128px;
+  width: auto;
+  max-width: 100%;
   margin: 0 auto 3px;
   background: #fff;
   color: #7A0F35;
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.25;
   text-align: center;
-  padding: 5px 8px;
-  border-radius: 11px;
+  padding: 4px 6px;
+  border-radius: 10px;
   box-shadow: var(--shadow-md);
+  word-break: break-word;
+  box-sizing: border-box;
 }
 .event-speech-bubble::after {
   content: '';
@@ -336,10 +359,11 @@
 :root[data-theme="dark"] .event-speech-bubble::after { border-top-color: #2A2A2E; }
 
 @media (max-width: 380px) {
-  .event-dancer { width: 62px; margin: 0; }
-  .dancer-svg-boy { width: 26px !important; height: 31px !important; }
-  .dancer-svg-girl { width: 24px !important; height: 29px !important; }
-  .event-speech-bubble { font-size: 8.5px; padding: 4px 7px; max-width: 100px; }
+  .event-dancer { width: 72px; margin: 0; }
+  .event-stage { height: 34px; }
+  .dancer-svg-boy { width: 24px !important; height: 28px !important; }
+  .dancer-svg-girl { width: 22px !important; height: 26px !important; }
+  .event-speech-bubble { font-size: 8px; padding: 3px 6px; }
 }
 
 /* Celebration banner on Home — countdown before the Baraat, "Mubarak" on the day. */
@@ -878,19 +902,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 
 /* ---------- Chat kitten ---------- */
-/* A tiny orange cat that lives at the bottom of the chat, above the
-   composer, wandering around and occasionally reacting to messages.
-   Always pointer-events: none so it can never block a tap. */
+/* A tiny orange cat that roams freely over the whole message area (not
+   just a strip above the composer), wandering around and occasionally
+   reacting to messages. Always pointer-events: none so it can never
+   block a tap, and it floats above the messages rather than scrolling
+   with them, so it's always visible somewhere in the chat. */
 .chat-cat {
   position: absolute;
-  left: 8px;
-  bottom: 8px;
+  left: 0;
+  top: 0;
   width: 42px;
   height: 30px;
   pointer-events: none;
   z-index: 3;
-  transform: translateX(var(--cat-x, 0px));
-  transition: transform 2.4s linear;
+  transform: translate(var(--cat-x, 8px), var(--cat-y, 120px));
+  transition: transform 2.8s linear;
   perspective: 200px;
 }
 .chat-cat.facing-left .cat-flip { transform: scaleX(-1); }
