@@ -17,9 +17,20 @@
   try {
     if (localStorage.getItem('gp_theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   } catch {}
+  // Time-limited "Baraat" wedding theme for Ateeb Saeed's wedding — live now
+  // through Nov 3, then this simply stops matching and the app is back to
+  // normal on its own. Set here (not just in app.js) so there's no flash of
+  // the regular palette before the JS bundle runs.
+  try {
+    const now = new Date();
+    const themeEnd = new Date('2026-11-03T23:59:59');
+    if (now <= themeEnd) document.documentElement.setAttribute('data-event-theme', 'baraat');
+  } catch {}
 </script>
 </head>
 <body>
+
+<!-- Floating petals/confetti for the Baraat theme (only rendered while it's active) -->
 
 <!-- ===== LOGIN SCREEN ===== -->
 <div id="auth-screen" class="screen">
@@ -95,6 +106,29 @@
         <p class="topbar-sub" id="header-sub">tap a tab below</p>
       </div>
     </button>
+    <div id="event-dancer" class="event-dancer hidden" aria-hidden="true">
+      <div class="event-speech-bubble" id="event-speech-bubble">Ateeb's shadi is coming soon! 💍</div>
+      <svg class="dancer-svg" viewBox="0 0 60 70" width="40" height="47">
+        <ellipse class="dancer-shadow" cx="30" cy="66" rx="14" ry="3.4" />
+        <g class="dancer-leg dancer-leg-left">
+          <rect x="24" y="48" width="6" height="16" rx="3" />
+        </g>
+        <g class="dancer-leg dancer-leg-right">
+          <rect x="30" y="48" width="6" height="16" rx="3" />
+        </g>
+        <g class="dancer-arm dancer-arm-left">
+          <rect x="10" y="26" width="7" height="20" rx="3.5" />
+        </g>
+        <g class="dancer-arm dancer-arm-right">
+          <rect x="43" y="26" width="7" height="20" rx="3.5" />
+        </g>
+        <rect class="dancer-kurta" x="18" y="24" width="24" height="28" rx="8" />
+        <circle class="dancer-head" cx="30" cy="16" r="9" />
+        <path class="dancer-turban" d="M 19 15 Q 19 3 30 3 Q 41 3 41 15 Q 41 18 38 18 L 22 18 Q 19 18 19 15 Z" />
+        <rect class="dancer-turban-tail" x="38" y="8" width="4" height="12" rx="2" />
+        <circle class="dancer-turban-jewel" cx="30" cy="7" r="2.2" />
+      </svg>
+    </div>
     <div class="who">
       <button id="notif-btn" class="icon-btn hidden" title="Enable notifications">🔔</button>
       <button id="install-btn" class="text-btn hidden">Install</button>
@@ -117,6 +151,8 @@
           <div class="home-greeting-date" id="home-greeting-date"></div>
         </div>
       </div>
+
+      <div id="event-banner" class="event-banner hidden"></div>
 
       <div class="card">
         <h2>Your tasks</h2>
