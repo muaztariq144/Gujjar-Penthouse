@@ -13,6 +13,9 @@ let currentPage = 'feed';
 let pageBeforeNotifications = 'feed';
 let unreadNotifCount = 0;
 let unreadCounts = { feed: 0, chat: 0, home: 0 };
+let storiesByUser = {}; // userId -> array of story objects, newest last
+let myStories = []; // convenience alias for storiesByUser[me.id]
+let storyViewerState = null; // { userId, stories, index, timer }
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -261,7 +264,7 @@ function onLoggedIn(data) {
 // "Sub-pages" are reached from the header (notifications) or a bottom-nav
 // avatar (profile) rather than a .page-btn tab, so they're not part of the
 // 4-tab bottom bar but still use the same show/hide machinery.
-const SUB_PAGES = new Set(['notifications', 'profile']);
+const SUB_PAGES = new Set(['notifications', 'profile', 'compose']);
 
 function switchToPage(page) {
   const wasChatPage = currentPage === 'chat';
@@ -272,6 +275,7 @@ function switchToPage(page) {
   $$('.page-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));
   $('#nav-profile-btn')?.classList.toggle('active', page === 'profile');
+  $('#nav-add-btn')?.classList.toggle('active', page === 'compose');
   currentPage = page;
   haptic('light');
 
@@ -287,6 +291,9 @@ function switchToPage(page) {
 
   // Let roommates see who's actually looking at the chat right now.
   if (page === 'chat' && !wasChatPage) {
+    // Compute the scroll position from the read state as it stood before
+    // this visit, then mark everything read.
+    scrollChatToRelevantPosition();
     socket?.emit('chat:enter');
     markLatestMessageRead();
     initChatCat();
@@ -346,6 +353,7 @@ async function startApp() {
   await loadTasks();
   await loadNotifications();
   await loadPolls();
+  await loadStories();
   connectSocket();
   setupNotifications();
   maybeAutoJoinCall();
@@ -356,6 +364,7 @@ async function startApp() {
   setupTypingIndicator();
   setupMembersPopup();
   setupStoriesRow();
+  setupStoryViewer();
 }
 
 // ---------- Keep the chat page's height in sync with the real header ----------
@@ -697,9 +706,69 @@ function populateProfilePage() {
   $('#current-password-input').value = '';
   $('#new-password-input').value = '';
   applyDarkModePreference();
+  $('#profile-edit-panel')?.classList.add('hidden');
+  const toggleBtn = $('#profile-edit-toggle-btn');
+  if (toggleBtn) toggleBtn.textContent = 'Edit profile';
+
+  $('#profile-display-name').textContent = me.name;
+  $('#profile-bio-line').textContent = me.email || 'Gujjar Penthouse roommate';
+
+  const myPosts = posts.filter((p) => p.user_id === me.id);
+  const myTasks = tasksCache.filter((t) => t.assignedTo && t.assignedTo.id === me.id);
+  $('#profile-stat-posts').textContent = myPosts.length;
+  $('#profile-stat-tasks').textContent = myTasks.length;
+  $('#profile-stat-done').textContent = myTasks.filter((t) => t.done).length;
+
+  const gridWrap = $('#profile-posts-grid-wrap');
+  if (gridWrap) {
+    gridWrap.innerHTML = myPosts.length
+      ? `<div class="profile-posts-grid">${myPosts.map((p) => `
+          <div class="profile-post-tile">
+            ${p.media
+              ? (p.media.kind === 'video'
+                  ? `<video src="${p.media.url}" muted></video>`
+                  : `<img src="${p.media.url}" alt="" />`)
+              : `<div class="profile-post-tile-text">${escapeHtml(p.caption || '').slice(0, 120)}</div>`}
+            <div class="profile-post-tile-overlay">❤️ ${p.likes.length} · 💬 ${p.comments.length}</div>
+          </div>
+        `).join('')}</div>`
+      : '<p class="empty-state">No posts yet — tap + to share your first one! 🎉</p>';
+  }
 }
 
 function setupProfileModal() {
+  const editToggleBtn = $('#profile-edit-toggle-btn');
+  if (editToggleBtn && !editToggleBtn.dataset.wired) {
+    editToggleBtn.dataset.wired = '1';
+    editToggleBtn.addEventListener('click', () => {
+      const panel = $('#profile-edit-panel');
+      const nowHidden = !panel.classList.contains('hidden');
+      panel.classList.toggle('hidden');
+      editToggleBtn.textContent = nowHidden ? 'Edit profile' : 'Done';
+      if (!nowHidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+
+  const shareBtn = $('#profile-share-btn');
+  if (shareBtn && !shareBtn.dataset.wired) {
+    shareBtn.dataset.wired = '1';
+    shareBtn.addEventListener('click', async () => {
+      const text = `${me.name} on Gujjar Penthouse`;
+      try {
+        if (navigator.share) {
+          await navigator.share({ title: text, text });
+        } else {
+          await navigator.clipboard.writeText(text);
+        }
+        const original = shareBtn.textContent;
+        shareBtn.textContent = navigator.share ? 'Shared!' : 'Copied!';
+        setTimeout(() => { shareBtn.textContent = original; }, 1500);
+      } catch {
+        // User cancelled the native share sheet — nothing to do.
+      }
+    });
+  }
+
   const avatarInput = $('#profile-avatar-input');
   if (avatarInput && !avatarInput.dataset.wired) {
     avatarInput.dataset.wired = '1';
@@ -1372,10 +1441,43 @@ async function loadMessages() {
   const data = await api('/api/messages');
   const box = $('#chat-messages');
   box.innerHTML = data.messages.map(renderMessage).join('');
-  box.scrollTop = box.scrollHeight;
   chatReads = {};
   for (const [userId, r] of Object.entries(data.reads || {})) chatReads[userId] = r.messageId;
   renderSeenReceipts();
+  scrollChatToRelevantPosition();
+}
+
+// Opens the chat where a person would actually want it: right at their
+// first unread message (like WhatsApp/Messenger), or at the very latest
+// message if they're already caught up or have no read history yet. Called
+// on load and again whenever the chat tab is actually opened, since the
+// page may have been hidden (display:none) the first time and unable to
+// compute a real scroll position.
+function scrollChatToRelevantPosition() {
+  const box = $('#chat-messages');
+  if (!box) return;
+  $('.chat-unread-divider')?.remove();
+  const rows = [...$$('.chat-msg-row[data-message-id]')];
+  if (!rows.length) return;
+  const lastReadId = me && chatReads[me.id];
+  // No read receipt at all means this person has never opened chat before —
+  // everything is unread, so the first unread message is the very first one.
+  // A read receipt that no longer matches any row (e.g. it was the very
+  // last message and nothing new has arrived) means they're caught up.
+  let firstUnreadIdx = 0;
+  if (lastReadId) {
+    const idx = rows.findIndex((r) => r.dataset.messageId === lastReadId);
+    firstUnreadIdx = idx === -1 ? 0 : idx + 1;
+  }
+  if (firstUnreadIdx < rows.length) {
+    const firstUnread = rows[firstUnreadIdx];
+    firstUnread.insertAdjacentHTML('beforebegin', '<div class="chat-unread-divider"><span>New messages</span></div>');
+    // Scroll the divider itself into view (rather than the message after it)
+    // so the "New messages" label is actually visible, not scrolled past.
+    $('.chat-unread-divider')?.scrollIntoView({ block: 'start' });
+    return;
+  }
+  box.scrollTop = box.scrollHeight;
 }
 
 function renderAttachment(attachment) {
@@ -1912,6 +2014,21 @@ function connectSocket() {
     if (post.user_id !== me?.id) bumpTabBadge('feed');
   });
 
+  socket.on('story:new', (story) => {
+    if (!storiesByUser[story.user_id]) storiesByUser[story.user_id] = [];
+    if (storiesByUser[story.user_id].find((s) => s.id === story.id)) return;
+    storiesByUser[story.user_id].push(story);
+    renderStoriesRow();
+  });
+
+  socket.on('story:viewed', ({ id, viewers }) => {
+    for (const list of Object.values(storiesByUser)) {
+      const story = list.find((s) => s.id === id);
+      if (story) { story.viewers = viewers; break; }
+    }
+    renderStoriesRow();
+  });
+
   socket.on('post:deleted', ({ id }) => {
     posts = posts.filter(p => p.id !== id);
     const card = document.querySelector(`.post-card[data-post-id="${id}"]`);
@@ -2065,7 +2182,7 @@ $('#post-form').addEventListener('submit', async (e) => {
     await api('/api/posts', { method: 'POST', body: JSON.stringify({ caption, media }) });
     captionInput.value = '';
     clearPostMediaPreview();
-    $('#new-post-card')?.classList.remove('expanded');
+    switchToPage('feed');
   } catch (err) {
     $('#post-error').textContent = err.message;
   } finally {
@@ -2073,13 +2190,13 @@ $('#post-form').addEventListener('submit', async (e) => {
   }
 });
 
-// Slim composer pill expands while in use, and settles back down once
-// it's empty and loses focus — Instagram-style compact "create" entry point.
-$('#post-caption')?.addEventListener('focus', () => $('#new-post-card')?.classList.add('expanded'));
-$('#post-caption')?.addEventListener('blur', () => {
-  if (!$('#post-caption').value.trim() && $('#post-media-preview')?.classList.contains('hidden')) {
-    $('#new-post-card')?.classList.remove('expanded');
-  }
+$('#nav-add-btn')?.addEventListener('click', () => {
+  switchToPage('compose');
+  requestAnimationFrame(() => $('#post-caption')?.focus());
+});
+
+$('#compose-back-btn')?.addEventListener('click', () => {
+  switchToPage(pageBeforeNotifications || 'feed');
 });
 
 async function loadFeed() {
@@ -2098,36 +2215,60 @@ function renderFeed() {
   list.innerHTML = posts.map(renderPostCard).join('');
 }
 
-// Instagram-style "stories" row at the top of the Feed — repurposed here as
-// a quick way to see who's home and jump to their profile. "Your story" on
-// the left opens the composer below; everyone else gets the same gradient
-// ring treatment tapping through to their profile (data-action="view-profile"
-// is handled by the existing global click delegate).
+// Instagram-style "stories" row at the top of the Feed. "Your story" on the
+// left opens the story viewer if you have an active story, or the upload
+// picker if you don't. Everyone else gets a gradient ring when they have an
+// unseen story, a muted ring when their story's already been seen, and a
+// plain ring (tapping through to their profile) when they have none.
 function renderStoriesRow() {
   const row = $('#stories-row');
   if (!row || !me) return;
+  myStories = storiesByUser[me.id] || [];
   const others = users.filter((u) => u.id !== me.id);
   const myRing = avatarOrInitials(me.id, me.name, '', 58);
-  const itemsHtml = others.map((u) => `
-    <div class="story-item" data-action="view-profile" data-user-id="${u.id}">
-      <span class="story-ring ${onlineUserIds.has(u.id) ? 'story-ring-online' : ''}">${avatarOrInitials(u.id, u.name, '', 58)}</span>
+  const itemsHtml = others.map((u) => {
+    const stories = storiesByUser[u.id] || [];
+    const hasStory = stories.length > 0;
+    const hasUnseen = stories.some((s) => !(s.viewers || []).includes(me.id));
+    const ringClass = hasStory
+      ? (hasUnseen ? 'story-ring-active' : 'story-ring-seen')
+      : (onlineUserIds.has(u.id) ? 'story-ring-online' : '');
+    return `
+    <div class="story-item" data-user-id="${u.id}" ${hasStory ? 'data-has-story="1"' : 'data-action="view-profile"'}>
+      <span class="story-ring ${ringClass}">${avatarOrInitials(u.id, u.name, '', 58)}</span>
       <span class="story-name">${escapeHtml(u.name.split(' ')[0])}</span>
     </div>
-  `).join('');
+  `;
+  }).join('');
   row.innerHTML = `
-    <div class="story-item" id="story-item-you" title="Share something">
-      <span class="story-ring story-ring-you">${myRing}<span class="story-add-badge">+</span></span>
+    <div class="story-item" id="story-item-you" title="${myStories.length ? 'View your story' : 'Share a story'}">
+      <span class="story-ring story-ring-you ${myStories.length ? 'story-ring-active' : ''}">${myRing}${myStories.length ? '' : '<span class="story-add-badge">+</span>'}</span>
       <span class="story-name">Your story</span>
     </div>
     ${itemsHtml}
   `;
 }
 
-// Expands the composer and focuses it — used by "Your story" and anywhere
-// else that should drop the user straight into writing a post.
+async function loadStories() {
+  try {
+    const data = await api('/api/stories');
+    storiesByUser = {};
+    for (const s of data.stories || []) {
+      if (!storiesByUser[s.user_id]) storiesByUser[s.user_id] = [];
+      storiesByUser[s.user_id].push(s);
+    }
+    myStories = me ? (storiesByUser[me.id] || []) : [];
+    renderStoriesRow();
+  } catch {
+    // Non-fatal — the stories row just won't show any active stories.
+  }
+}
+
+// Navigates to the compose page and focuses it — used anywhere that should
+// drop the user straight into writing a post.
 function focusComposer() {
-  $('#new-post-card')?.classList.add('expanded');
-  $('#post-caption')?.focus();
+  switchToPage('compose');
+  requestAnimationFrame(() => $('#post-caption')?.focus());
 }
 
 function setupStoriesRow() {
@@ -2135,8 +2276,157 @@ function setupStoriesRow() {
   if (!row || row.dataset.wired) return;
   row.dataset.wired = '1';
   row.addEventListener('click', (e) => {
-    if (e.target.closest('#story-item-you')) focusComposer();
+    const youItem = e.target.closest('#story-item-you');
+    if (youItem) {
+      if (myStories.length) openStoryViewer(me.id);
+      else $('#story-media-input')?.click();
+      return;
+    }
+    const storyItem = e.target.closest('.story-item[data-has-story="1"]');
+    if (storyItem) {
+      e.stopPropagation();
+      openStoryViewer(storyItem.dataset.userId);
+    }
   });
+  $('#story-media-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const uploaded = await uploadFile(file);
+      await api('/api/stories', { method: 'POST', body: JSON.stringify({ media: { url: uploaded.url, kind: uploaded.kind === 'video' ? 'video' : 'image' } }) });
+      await loadStories();
+      openStoryViewer(me.id);
+    } catch (err) {
+      alert(err.message || 'Could not upload that story.');
+    }
+  });
+}
+
+// ---------- Story viewer (full-screen, Instagram-style) ----------
+const STORY_IMAGE_DURATION_MS = 5000;
+
+// Order of userIds that currently have at least one story, in the same
+// order they appear in the stories row (you first), so tapping "next" past
+// the end of one person's stories moves on to the next person's.
+function storyUserOrder() {
+  const order = [];
+  if (myStories.length) order.push(me.id);
+  users.filter((u) => u.id !== me.id).forEach((u) => {
+    if ((storiesByUser[u.id] || []).length) order.push(u.id);
+  });
+  return order;
+}
+
+function openStoryViewer(userId) {
+  const stories = userId === me.id ? myStories : (storiesByUser[userId] || []);
+  if (!stories.length) return;
+  const firstUnseenIdx = stories.findIndex((s) => !(s.viewers || []).includes(me.id));
+  clearTimeout(storyViewerState?.timer);
+  storyViewerState = { userId, stories, index: firstUnseenIdx !== -1 ? firstUnseenIdx : 0 };
+  $('#story-viewer')?.classList.remove('hidden');
+  document.body.classList.add('story-viewer-open');
+  showStoryFrame();
+}
+
+function closeStoryViewer() {
+  clearTimeout(storyViewerState?.timer);
+  storyViewerState = null;
+  $('#story-viewer')?.classList.add('hidden');
+  document.body.classList.remove('story-viewer-open');
+  const media = $('#story-viewer-media');
+  if (media) media.innerHTML = '';
+}
+
+function showStoryFrame() {
+  if (!storyViewerState) return;
+  const { stories, index, userId } = storyViewerState;
+  const story = stories[index];
+  if (!story) return closeStoryViewer();
+
+  const user = users.find((u) => u.id === userId) || me;
+  $('#story-viewer-avatar').innerHTML = avatarOrInitials(user.id, user.name, '', 30);
+  $('#story-viewer-name').textContent = userId === me.id ? 'Your story' : user.name;
+  $('#story-viewer-time').textContent = timeAgo(story.createdAt || story.created_at);
+
+  const barsWrap = $('#story-viewer-bars');
+  if (barsWrap) {
+    barsWrap.innerHTML = stories.map((_, i) => `
+      <span class="story-bar ${i < index ? 'story-bar-done' : ''}"><i class="${i === index ? 'story-bar-fill' : ''}"></i></span>
+    `).join('');
+  }
+
+  const mediaWrap = $('#story-viewer-media');
+  if (mediaWrap) {
+    mediaWrap.innerHTML = story.media
+      ? (story.media.kind === 'video'
+          ? `<video src="${story.media.url}" autoplay playsinline></video>`
+          : `<img src="${story.media.url}" alt="" />`)
+      : `<div class="story-viewer-text">${escapeHtml(story.caption || '')}</div>`;
+  }
+
+  if (!(story.viewers || []).includes(me.id)) {
+    api(`/api/stories/${story.id}/view`, { method: 'POST' }).then(() => {
+      story.viewers = story.viewers || [];
+      if (!story.viewers.includes(me.id)) story.viewers.push(me.id);
+      renderStoriesRow();
+    }).catch(() => {});
+  }
+
+  clearTimeout(storyViewerState.timer);
+  const video = mediaWrap?.querySelector('video');
+  const activeBarFill = $('.story-bar-fill');
+  if (activeBarFill) {
+    activeBarFill.style.animation = 'none';
+    // Force reflow so the animation restarts cleanly on the new bar.
+    void activeBarFill.offsetWidth;
+  }
+  if (video) {
+    video.addEventListener('loadedmetadata', () => {
+      const durationMs = Math.max(1000, (video.duration || 5) * 1000);
+      if (activeBarFill) activeBarFill.style.animation = `story-bar-fill ${durationMs}ms linear forwards`;
+    }, { once: true });
+    storyViewerState.timer = setTimeout(() => advanceStory(1), 15000); // safety fallback
+    video.addEventListener('ended', () => advanceStory(1), { once: true });
+  } else {
+    if (activeBarFill) activeBarFill.style.animation = `story-bar-fill ${STORY_IMAGE_DURATION_MS}ms linear forwards`;
+    storyViewerState.timer = setTimeout(() => advanceStory(1), STORY_IMAGE_DURATION_MS);
+  }
+}
+
+function advanceStory(dir) {
+  if (!storyViewerState) return;
+  clearTimeout(storyViewerState.timer);
+  const { stories, index, userId } = storyViewerState;
+  const nextIndex = index + dir;
+  if (nextIndex >= 0 && nextIndex < stories.length) {
+    storyViewerState.index = nextIndex;
+    showStoryFrame();
+    return;
+  }
+  // Ran off the end of this person's stories — move to the next/previous
+  // person in the row, or close if there's nowhere left to go.
+  const order = storyUserOrder();
+  const pos = order.indexOf(userId);
+  const nextPos = pos + dir;
+  if (nextPos < 0 || nextPos >= order.length) {
+    closeStoryViewer();
+    return;
+  }
+  const nextUserId = order[nextPos];
+  const nextStories = nextUserId === me.id ? myStories : (storiesByUser[nextUserId] || []);
+  if (!nextStories.length) return closeStoryViewer();
+  storyViewerState = { userId: nextUserId, stories: nextStories, index: dir > 0 ? 0 : nextStories.length - 1 };
+  showStoryFrame();
+}
+
+function setupStoryViewer() {
+  const viewer = $('#story-viewer');
+  if (!viewer || viewer.dataset.wired) return;
+  viewer.dataset.wired = '1';
+  $('#story-viewer-close')?.addEventListener('click', closeStoryViewer);
+  $('#story-viewer-prev')?.addEventListener('click', () => advanceStory(-1));
+  $('#story-viewer-next')?.addEventListener('click', () => advanceStory(1));
 }
 
 function timeAgo(timestamp) {
@@ -2186,9 +2476,6 @@ function renderPostCard(post) {
       <div class="post-card-actions">
         <button class="post-action-btn icon-only ${likedByMe ? 'liked' : ''}" data-action="like-post" title="Like">${likedByMe ? ICONS.heartActive : ICONS.heart}</button>
         <span class="post-action-btn icon-only" style="cursor:default;" title="Comments">${ICONS.comment}</span>
-        <span class="post-action-btn icon-only" style="cursor:default;" title="Share">${ICONS.share}</span>
-        <span class="post-actions-spacer"></span>
-        <span class="post-action-btn icon-only" style="cursor:default;" title="Save">${ICONS.bookmark}</span>
       </div>
       ${likesLabel}
       ${post.caption ? `<div class="post-card-caption"><span class="post-card-caption-name">${escapeHtml(post.user_name)}</span> ${escapeHtml(post.caption)}</div>` : ''}
