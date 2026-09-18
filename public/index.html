@@ -103,14 +103,53 @@
   </header>
 
   <nav class="tabbar">
-    <button class="page-btn active" data-page="expenses"><span class="page-btn-icon">💸</span><span class="page-btn-label">Expenses</span></button>
+    <button class="page-btn active" data-page="home"><span class="page-btn-icon">🏠</span><span class="page-btn-label">Home</span></button>
+    <button class="page-btn" data-page="expenses"><span class="page-btn-icon">💸</span><span class="page-btn-label">Expenses</span></button>
     <button class="page-btn" data-page="balances"><span class="page-btn-icon">📊</span><span class="page-btn-label">Balances</span></button>
     <button class="page-btn" data-page="feed"><span class="page-btn-icon">📸</span><span class="page-btn-label">Feed</span></button>
     <button class="page-btn" data-page="chat"><span class="page-btn-icon">💬</span><span class="page-btn-label">Chat</span></button>
   </nav>
 
+  <!-- Home page -->
+  <section id="page-home" class="page active">
+    <div class="home-page-inner">
+      <div class="card">
+        <h2>Your tasks</h2>
+        <ul id="home-tasks-list" class="task-list"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Recent notifications</h2>
+        <ul id="home-notifications-list" class="notification-list"></ul>
+      </div>
+
+      <div class="balance-line-card" id="home-balance-line">
+        <span class="balance-line-icon">💰</span>
+        <span id="home-balance-text">Loading your balance…</span>
+      </div>
+
+      <div class="card">
+        <h2>Assign a task</h2>
+        <form id="task-form">
+          <input type="text" id="task-title" placeholder="What needs to be done? (e.g. Take out the trash)" required maxlength="200" />
+          <div class="task-form-row">
+            <select id="task-assignee"></select>
+            <input type="date" id="task-due-date" />
+          </div>
+          <button type="submit">Assign task</button>
+          <p class="error" id="task-error"></p>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>All house tasks</h2>
+        <ul id="all-tasks-list" class="task-list"></ul>
+      </div>
+    </div>
+  </section>
+
   <!-- Expenses page -->
-  <section id="page-expenses" class="page active">
+  <section id="page-expenses" class="page">
     <form id="expense-form" class="card">
       <h2>Add an expense</h2>
       <input type="text" id="exp-description" placeholder="What was it for? (e.g. Groceries)" required />
@@ -268,6 +307,19 @@
       <div class="modal-divider"></div>
 
       <button type="button" id="logout-btn" class="danger-btn full-width-btn">Log out</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== VIEW SOMEONE ELSE'S PROFILE (read-only, Instagram-style) ===== -->
+<div id="user-profile-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Profile</h2>
+      <button type="button" class="modal-close-btn" data-close-modal="user-profile-modal">✕</button>
+    </div>
+    <div class="profile-modal-body" id="user-profile-body">
+      <p class="empty-state">Loading…</p>
     </div>
   </div>
 </div>
