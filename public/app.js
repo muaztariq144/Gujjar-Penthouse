@@ -7,11 +7,30 @@ let tasksCache = [];
 let notificationsCache = [];
 let pollsCache = [];
 let onlineUserIds = new Set();
+let chatViewerIds = new Set();
+let chatReads = {}; // userId -> messageId (their last-read message)
 let currentPage = 'home';
 let unreadCounts = { feed: 0, chat: 0, home: 0 };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
+
+// ---------- Haptics ----------
+// Vibration is only actually supported on Android/Chrome-family browsers
+// (iOS Safari has no vibrate API), so this is a "when we can" nicety, not
+// something any feature depends on.
+const HAPTIC_PATTERNS = {
+  light: 8,             // tab switches, opening a popup
+  tap: 14,               // sending a message, reacting, liking
+  success: [12, 40, 16], // completing a task, casting a poll vote
+  pop: [8, 30, 8, 30, 14], // a little extra flourish (double-tap like)
+};
+
+function haptic(type = 'light') {
+  try {
+    if (navigator.vibrate) navigator.vibrate(HAPTIC_PATTERNS[type] || HAPTIC_PATTERNS.light);
+  } catch {}
+}
 
 // ---------- Installable app (PWA) ----------
 if ('serviceWorker' in navigator) {
@@ -237,18 +256,28 @@ function onLoggedIn(data) {
 }
 
 // ---------- Page navigation ----------
+function switchToPage(page) {
+  const wasChatPage = currentPage === 'chat';
+  $$('.page-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
+  $$('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));
+  currentPage = page;
+  haptic('light');
+  // Notifications are marked "seen" server-side the moment they're fetched,
+  // so re-fetch each time someone actually opens Home to see fresh ones.
+  if (page === 'home' && me) loadNotifications().catch(() => {});
+  clearTabBadge(page);
+
+  // Let roommates see who's actually looking at the chat right now.
+  if (page === 'chat' && !wasChatPage) {
+    socket?.emit('chat:enter');
+    markLatestMessageRead();
+  } else if (wasChatPage && page !== 'chat') {
+    socket?.emit('chat:leave-view');
+  }
+}
+
 $$('.page-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    $$('.page-btn').forEach((b) => b.classList.remove('active'));
-    $$('.page').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    $(`#page-${btn.dataset.page}`).classList.add('active');
-    currentPage = btn.dataset.page;
-    // Notifications are marked "seen" server-side the moment they're fetched,
-    // so re-fetch each time someone actually opens Home to see fresh ones.
-    if (btn.dataset.page === 'home' && me) loadNotifications().catch(() => {});
-    clearTabBadge(btn.dataset.page);
-  });
+  btn.addEventListener('click', () => switchToPage(btn.dataset.page));
 });
 
 function setTabBadge(tab, count) {
@@ -314,6 +343,8 @@ function renderHomeGreeting() {
 // ---------- Members popup (tap the logo/name in the header) ----------
 function memberRowHtml(u) {
   const online = onlineUserIds.has(u.id);
+  const inChat = chatViewerIds.has(u.id);
+  const statusText = inChat ? '💬 In the chat right now' : (online ? 'Online' : 'Offline');
   return `
     <li class="member-row" data-action="view-profile" data-user-id="${u.id}">
       <span class="avatar-presence-wrap">
@@ -322,7 +353,7 @@ function memberRowHtml(u) {
       </span>
       <div class="member-row-info">
         <div class="member-row-name">${escapeHtml(u.name)}${u.id === me?.id ? ' (you)' : ''}</div>
-        <div class="member-row-status">${online ? 'Online' : 'Offline'}</div>
+        <div class="member-row-status ${inChat ? 'in-chat' : ''}">${statusText}</div>
       </div>
     </li>
   `;
@@ -346,6 +377,7 @@ function setupMembersPopup() {
   if (btn && !btn.dataset.wired) {
     btn.dataset.wired = '1';
     btn.addEventListener('click', () => {
+      haptic('light');
       renderMembersList();
       openModal('members-modal');
     });
@@ -500,10 +532,7 @@ function maybeAutoJoinCall() {
 }
 
 function goToCallPageAndJoin() {
-  $$('.page-btn').forEach((b) => b.classList.remove('active'));
-  $$('.page').forEach((p) => p.classList.remove('active'));
-  $('.page-btn[data-page="chat"]').classList.add('active');
-  $('#page-chat').classList.add('active');
+  switchToPage('chat');
   joinCallAndRevealBar();
 }
 
@@ -797,6 +826,7 @@ if (pollsListEl) {
     if (option) {
       const poll = pollsCache.find(p => p.id === option.dataset.pollId);
       if (!poll || poll.closed) return;
+      haptic('success');
       try {
         const { poll: updated } = await api(`/api/polls/${option.dataset.pollId}/vote`, {
           method: 'POST',
@@ -903,7 +933,7 @@ async function handleTaskListClick(e) {
   const checkbox = e.target.closest('[data-action="toggle-task"]');
   if (checkbox) {
     const aboutToComplete = !checkbox.classList.contains('checked');
-    if (aboutToComplete) spawnConfetti(checkbox);
+    if (aboutToComplete) { spawnConfetti(checkbox); haptic('success'); } else { haptic('light'); }
     try {
       await api(`/api/tasks/${taskId}/toggle`, { method: 'POST' });
     } catch (err) {
@@ -1036,6 +1066,9 @@ async function loadMessages() {
   const box = $('#chat-messages');
   box.innerHTML = data.messages.map(renderMessage).join('');
   box.scrollTop = box.scrollHeight;
+  chatReads = {};
+  for (const [userId, r] of Object.entries(data.reads || {})) chatReads[userId] = r.messageId;
+  renderSeenReceipts();
 }
 
 function renderAttachment(attachment) {
@@ -1096,7 +1129,7 @@ function openReactPicker(row) {
   popup.innerHTML = QUICK_REACTIONS.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
   popup.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
-    if (btn && socket) socket.emit('chat:react', { messageId, emoji: btn.dataset.emoji });
+    if (btn && socket) { haptic('pop'); socket.emit('chat:react', { messageId, emoji: btn.dataset.emoji }); }
     closeReactPicker();
   });
   // Fixed-position + clamped so it never gets stuck under the sticky chat
@@ -1132,6 +1165,55 @@ function updateMessageReactionsInDom(messageId, reactions) {
   const html = reactionsBarHtml(reactions);
   if (existing) existing.remove();
   if (html) bubble.insertAdjacentHTML('beforeend', html);
+}
+
+// ---------- Chat read receipts ("seen by", Instagram DM style) ----------
+// Rather than marking every single message read/unread, we track only the
+// last message each person has read, and show a tiny avatar under that exact
+// message row — the same "Seen" pattern Instagram/iMessage DMs use.
+function markLatestMessageRead() {
+  const rows = $$('.chat-msg-row[data-message-id]');
+  if (!rows.length || !socket) return;
+  const lastId = rows[rows.length - 1].dataset.messageId;
+  socket.emit('chat:mark-read', { messageId: lastId });
+}
+
+function renderSeenReceipts() {
+  document.querySelectorAll('.msg-seen-row').forEach(el => el.remove());
+  const rowsInOrder = [...$$('.chat-msg-row[data-message-id]')];
+  const indexOf = new Map(rowsInOrder.map((row, i) => [row.dataset.messageId, i]));
+
+  // Group readers by the row they've each read up to, then only draw the
+  // marker on the single most-recent row for each reader.
+  for (const [userId, messageId] of Object.entries(chatReads)) {
+    if (userId === me?.id) continue;
+    if (!indexOf.has(messageId)) continue;
+    const row = rowsInOrder[indexOf.get(messageId)];
+    const msgCol = row.querySelector('.chat-msg');
+    if (!msgCol) continue;
+    let seenRow = msgCol.querySelector('.msg-seen-row');
+    if (!seenRow) {
+      seenRow = document.createElement('div');
+      seenRow.className = 'msg-seen-row';
+      msgCol.appendChild(seenRow);
+    }
+    if (seenRow.querySelector(`[data-seen-user="${userId}"]`)) continue;
+    seenRow.insertAdjacentHTML('beforeend', `<span data-seen-user="${userId}" title="Seen by ${escapeHtml(userName(userId))}">${avatarOrInitials(userId, userName(userId), 'seen-avatar', 15)}</span>`);
+  }
+}
+
+// ---------- Who's currently on the Chat tab ----------
+function renderChatViewers() {
+  const row = $('#chat-viewers-row');
+  if (!row) return;
+  const others = [...chatViewerIds].filter(id => id !== me?.id);
+  if (others.length === 0) {
+    row.classList.add('hidden');
+    return;
+  }
+  row.innerHTML = others.slice(0, 5).map(id => avatarOrInitials(id, userName(id), 'chat-viewer-avatar', 20)).join('');
+  row.title = `${others.map(userName).join(', ')} ${others.length === 1 ? 'is' : 'are'} viewing this chat`;
+  row.classList.remove('hidden');
 }
 
 function renderMessage(m) {
@@ -1405,6 +1487,7 @@ $('#chat-form').addEventListener('submit', async (e) => {
   if (!text && !attachment) return;
   if (!socket) return;
 
+  haptic('tap');
   socket.emit('chat:send', {
     text,
     attachment: attachment
@@ -1424,7 +1507,11 @@ function connectSocket() {
     const box = $('#chat-messages');
     box.insertAdjacentHTML('beforeend', renderMessage(m));
     box.scrollTop = box.scrollHeight;
-    if (m.user_id !== me?.id) bumpTabBadge('chat');
+    renderSeenReceipts();
+    if (m.user_id !== me?.id) {
+      bumpTabBadge('chat');
+      if (currentPage === 'chat') { haptic('light'); markLatestMessageRead(); }
+    }
   });
 
   socket.on('user:updated', (u) => {
@@ -1465,6 +1552,19 @@ function connectSocket() {
   // ---------- Chat message reactions ----------
   socket.on('chat:reaction-update', ({ messageId, reactions }) => {
     updateMessageReactionsInDom(messageId, reactions);
+  });
+
+  // ---------- Who's viewing the chat right now ----------
+  socket.on('chat:viewers-update', (viewers) => {
+    chatViewerIds = new Set(viewers.map(v => v.id));
+    renderChatViewers();
+    renderMembersList();
+  });
+
+  // ---------- Read receipts ----------
+  socket.on('chat:read-update', ({ userId, messageId }) => {
+    chatReads[userId] = messageId;
+    renderSeenReceipts();
   });
 
   // ---------- Notifications ----------
@@ -1720,6 +1820,7 @@ function renderPostCard(post) {
 // Instagram-style: double-tap/double-click a post's photo or video to like it,
 // with a big heart animation — even if it's already liked (a fun no-op tap).
 async function likePost(postId) {
+  haptic('tap');
   try {
     await api(`/api/posts/${postId}/like`, { method: 'POST' });
   } catch (err) {
@@ -1752,6 +1853,7 @@ function spawnConfetti(anchorEl) {
 }
 
 function spawnHeartBurst(container) {
+  haptic('pop');
   const heart = document.createElement('div');
   heart.className = 'heart-burst';
   heart.textContent = '❤️';
