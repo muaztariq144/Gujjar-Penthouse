@@ -271,6 +271,7 @@ function switchToPage(page) {
   if (page === 'chat' && !wasChatPage) {
     socket?.emit('chat:enter');
     markLatestMessageRead();
+    initChatCat();
   } else if (wasChatPage && page !== 'chat') {
     socket?.emit('chat:leave-view');
   }
@@ -311,7 +312,6 @@ async function startApp() {
   renderEventBanner();
   renderEventDancer();
   syncHeaderHeight();
-  initChatCat();
 
   await loadUsers();
   await loadMessages();
@@ -347,6 +347,7 @@ window.addEventListener('load', syncHeaderHeight);
 // ---------- Chat kitten (a tiny wandering orange cat, purely for fun) ----------
 let catTimer = null;
 let catX = 8;
+let catY = 60;
 const CAT_STATES = ['cat-walking', 'cat-sit', 'cat-sleep', 'cat-clean', 'cat-meow', 'cat-dance'];
 
 function setCatState(state) {
@@ -356,10 +357,34 @@ function setCatState(state) {
   cat.classList.add(state);
 }
 
-function moveCatTo(x) {
+function moveCatTo(x, y) {
   const cat = $('#chat-cat');
   if (!cat) return;
   cat.style.setProperty('--cat-x', `${x}px`);
+  cat.style.setProperty('--cat-y', `${y}px`);
+}
+
+// The cat should roam anywhere over the message area itself — not just a
+// strip above the composer — but never overlap the sticky chat header up
+// top or the composer down below. Measure those live so it always works,
+// however tall the header happens to be (e.g. with the wedding dancers
+// showing) or however many messages are on screen.
+function getCatBounds() {
+  const card = $('#chat-cat')?.closest('.chat-card');
+  const header = $('.chat-header');
+  const form = $('#chat-form');
+  const fallback = { minX: 8, maxX: 220, minY: 60, maxY: 300 };
+  if (!card || !header || !form) return fallback;
+  const cardRect = card.getBoundingClientRect();
+  const headerRect = header.getBoundingClientRect();
+  const formRect = form.getBoundingClientRect();
+  const minX = 6;
+  const maxX = Math.max(minX, cardRect.width - 50);
+  // Extra headroom below the chat header so the cat's floating speech/zzz
+  // bubble (which sits above its own box) never pokes into the header text.
+  const minY = Math.max(8, headerRect.bottom - cardRect.top + 34);
+  const maxY = Math.max(minY + 10, formRect.top - cardRect.top - 40);
+  return { minX, maxX, minY, maxY };
 }
 
 function scheduleNextCatBehavior() {
@@ -372,13 +397,14 @@ function scheduleNextCatBehavior() {
   const next = choices[Math.floor(Math.random() * choices.length)];
 
   if (next === 'walk') {
-    const card = cat.closest('.chat-card');
-    const maxX = card ? Math.max(20, card.clientWidth - 60) : 220;
-    const target = Math.round(Math.random() * maxX);
-    cat.classList.toggle('facing-left', target < catX);
-    catX = target;
+    const { minX, maxX, minY, maxY } = getCatBounds();
+    const targetX = Math.round(minX + Math.random() * (maxX - minX));
+    const targetY = Math.round(minY + Math.random() * (maxY - minY));
+    cat.classList.toggle('facing-left', targetX < catX);
+    catX = targetX;
+    catY = targetY;
     setCatState('cat-walking');
-    moveCatTo(target);
+    moveCatTo(targetX, targetY);
     catTimer = setTimeout(scheduleNextCatBehavior, 2600 + Math.random() * 2200);
   } else if (next === 'sit') {
     setCatState('cat-sit');
@@ -395,8 +421,15 @@ function scheduleNextCatBehavior() {
 function initChatCat() {
   if (initChatCat._started) return;
   initChatCat._started = true;
-  moveCatTo(catX);
-  scheduleNextCatBehavior();
+  // Give layout a moment to settle (header height, message list, etc.)
+  // before measuring bounds for the cat's starting spot.
+  setTimeout(() => {
+    const { minX, maxX, minY, maxY } = getCatBounds();
+    catX = Math.round(minX + Math.random() * (maxX - minX));
+    catY = Math.round(minY + Math.random() * (maxY - minY));
+    moveCatTo(catX, catY);
+    scheduleNextCatBehavior();
+  }, 300);
 }
 
 // Give the kitten a little reaction whenever a chat message comes in —
@@ -445,14 +478,51 @@ function renderEventDancer() {
   const now = new Date();
   let text;
   if (now < BARAAT_START) {
-    text = `Ateeb's shadi coming soon! 💍`;
+    text = `Shadi soon! 💍`;
   } else if (now <= BARAAT_END) {
-    text = `Baraat Mubarak! 🎊`;
+    text = `Mubarak! 🎊`;
   } else {
-    text = `Mubarak ho, Ateeb! 💐`;
+    text = `Mubarak ho! 💐`;
   }
   if (bubble) bubble.textContent = text;
   dancer.classList.remove('hidden');
+  startDancerRoaming();
+}
+
+// The couple runs, plays and dances freely across their little stage in the
+// header, instead of standing still in one spot. Each figure has its own
+// independent loop: run to a random point on the stage (faster legs, like
+// actually running), then settle there and do the normal bhangra bounce for
+// a bit, then pick a new spot — so they never move in perfect lockstep and
+// occasionally end up dancing right next to each other.
+let dancerRoamStarted = false;
+function roamFigure(figureId) {
+  const fig = document.getElementById(figureId);
+  const stage = $('#event-stage');
+  if (!fig || !stage || !isEventThemeActive()) return;
+
+  const stageW = stage.clientWidth || 92;
+  const figW = fig.offsetWidth || 30;
+  const maxX = Math.max(4, stageW - figW - 4);
+  const targetX = Math.round(Math.random() * maxX);
+  const currentX = parseFloat(fig.style.getPropertyValue('--dx')) || 0;
+  fig.classList.toggle('facing-left', targetX < currentX);
+  fig.classList.add('dancer-running');
+  fig.style.setProperty('--dx', `${targetX}px`);
+
+  const runTime = 1100 + Math.random() * 900;
+  setTimeout(() => {
+    fig.classList.remove('dancer-running');
+    const danceTime = 1600 + Math.random() * 2200;
+    setTimeout(() => roamFigure(figureId), danceTime);
+  }, runTime);
+}
+
+function startDancerRoaming() {
+  if (dancerRoamStarted) return;
+  dancerRoamStarted = true;
+  roamFigure('dancer-figure-boy');
+  setTimeout(() => roamFigure('dancer-figure-girl'), 700); // offset so they don't sync perfectly
 }
 
 function renderEventBanner() {
