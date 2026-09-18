@@ -88,13 +88,13 @@
 <!-- ===== MAIN APP ===== -->
 <div id="app-screen" class="screen hidden">
   <header class="topbar">
-    <div class="topbar-left">
+    <button type="button" class="topbar-left brand-btn" id="brand-logo-btn" title="See who's in the house">
       <img src="/icon-192.png" alt="" class="brand-logo-header" />
       <div>
         <h1>Gujjar Penthouse</h1>
         <p class="topbar-sub" id="header-sub">tap a tab below</p>
       </div>
-    </div>
+    </button>
     <div class="who">
       <button id="notif-btn" class="icon-btn hidden" title="Enable notifications">🔔</button>
       <button id="install-btn" class="text-btn hidden">Install</button>
@@ -103,14 +103,21 @@
   </header>
 
   <nav class="tabbar">
-    <button class="page-btn active" data-page="home"><span class="page-btn-icon">🏠</span><span class="page-btn-label">Home</span></button>
-    <button class="page-btn" data-page="feed"><span class="page-btn-icon">📸</span><span class="page-btn-label">Feed</span></button>
-    <button class="page-btn" data-page="chat"><span class="page-btn-icon">💬</span><span class="page-btn-label">Chat</span></button>
+    <button class="page-btn active" data-page="home"><span class="page-btn-icon">🏠</span><span class="page-btn-label">Home</span><span class="tab-badge hidden" id="badge-home"></span></button>
+    <button class="page-btn" data-page="feed"><span class="page-btn-icon">📸</span><span class="page-btn-label">Feed</span><span class="tab-badge hidden" id="badge-feed"></span></button>
+    <button class="page-btn" data-page="chat"><span class="page-btn-icon">💬</span><span class="page-btn-label">Chat</span><span class="tab-badge hidden" id="badge-chat"></span></button>
   </nav>
 
   <!-- Home page -->
   <section id="page-home" class="page active">
     <div class="home-page-inner">
+      <div class="home-greeting-card">
+        <div class="home-greeting-text">
+          <div class="home-greeting-line" id="home-greeting-line">Hey there 👋</div>
+          <div class="home-greeting-date" id="home-greeting-date"></div>
+        </div>
+      </div>
+
       <div class="card">
         <h2>Your tasks</h2>
         <ul id="home-tasks-list" class="task-list"></ul>
@@ -284,6 +291,17 @@
 
       <button type="button" id="logout-btn" class="danger-btn full-width-btn">Log out</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== MEMBERS MODAL (opened by tapping the logo/name) ===== -->
+<div id="members-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>The house 🏠</h2>
+      <button type="button" class="modal-close-btn" data-close-modal="members-modal">✕</button>
+    </div>
+    <ul id="members-list" class="members-list"></ul>
   </div>
 </div>
 
