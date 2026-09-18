@@ -30,7 +30,57 @@
 </head>
 <body>
 
-<!-- Floating petals/confetti for the Baraat theme (only rendered while it's active) -->
+<!-- Shared gradient defs (referenced by fill="url(#...)" from the dancer + cat
+     SVGs below) so those little characters get soft shaded, rounder,
+     more "3D" looking bodies instead of flat single-color shapes. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <radialGradient id="grad-kurta-green" cx="35%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#4FD69C" />
+      <stop offset="55%" stop-color="#1E7A52" />
+      <stop offset="100%" stop-color="#0F5C3B" />
+    </radialGradient>
+    <radialGradient id="grad-kurta-green-dark" cx="35%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#7CF0BE" />
+      <stop offset="55%" stop-color="#2FA374" />
+      <stop offset="100%" stop-color="#166B48" />
+    </radialGradient>
+    <radialGradient id="grad-kameez-pink" cx="35%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#F778AF" />
+      <stop offset="55%" stop-color="#C9226B" />
+      <stop offset="100%" stop-color="#93154C" />
+    </radialGradient>
+    <radialGradient id="grad-kameez-pink-dark" cx="35%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#FFA8CE" />
+      <stop offset="55%" stop-color="#E0518F" />
+      <stop offset="100%" stop-color="#A9346A" />
+    </radialGradient>
+    <radialGradient id="grad-skin" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#E8AD82" />
+      <stop offset="60%" stop-color="#C98A5E" />
+      <stop offset="100%" stop-color="#A96D45" />
+    </radialGradient>
+    <radialGradient id="grad-turban" cx="35%" cy="20%" r="85%">
+      <stop offset="0%" stop-color="#D94870" />
+      <stop offset="55%" stop-color="#A31545" />
+      <stop offset="100%" stop-color="#700D2F" />
+    </radialGradient>
+    <radialGradient id="grad-hair" cx="35%" cy="20%" r="85%">
+      <stop offset="0%" stop-color="#4A3324" />
+      <stop offset="60%" stop-color="#2B1B12" />
+      <stop offset="100%" stop-color="#160D08" />
+    </radialGradient>
+    <radialGradient id="grad-cat-orange" cx="35%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#FFC98A" />
+      <stop offset="45%" stop-color="#FF9A3D" />
+      <stop offset="100%" stop-color="#E06E12" />
+    </radialGradient>
+    <radialGradient id="grad-cat-belly" cx="50%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#FFF3DF" />
+      <stop offset="100%" stop-color="#FFD8A8" />
+    </radialGradient>
+  </defs>
+</svg>
 
 <!-- ===== LOGIN SCREEN ===== -->
 <div id="auth-screen" class="screen">
@@ -108,26 +158,50 @@
     </button>
     <div id="event-dancer" class="event-dancer hidden" aria-hidden="true">
       <div class="event-speech-bubble" id="event-speech-bubble">Ateeb's shadi is coming soon! 💍</div>
-      <svg class="dancer-svg" viewBox="0 0 60 70" width="40" height="47">
-        <ellipse class="dancer-shadow" cx="30" cy="66" rx="14" ry="3.4" />
-        <g class="dancer-leg dancer-leg-left">
-          <rect x="24" y="48" width="6" height="16" rx="3" />
-        </g>
-        <g class="dancer-leg dancer-leg-right">
-          <rect x="30" y="48" width="6" height="16" rx="3" />
-        </g>
-        <g class="dancer-arm dancer-arm-left">
-          <rect x="10" y="26" width="7" height="20" rx="3.5" />
-        </g>
-        <g class="dancer-arm dancer-arm-right">
-          <rect x="43" y="26" width="7" height="20" rx="3.5" />
-        </g>
-        <rect class="dancer-kurta" x="18" y="24" width="24" height="28" rx="8" />
-        <circle class="dancer-head" cx="30" cy="16" r="9" />
-        <path class="dancer-turban" d="M 19 15 Q 19 3 30 3 Q 41 3 41 15 Q 41 18 38 18 L 22 18 Q 19 18 19 15 Z" />
-        <rect class="dancer-turban-tail" x="38" y="8" width="4" height="12" rx="2" />
-        <circle class="dancer-turban-jewel" cx="30" cy="7" r="2.2" />
-      </svg>
+      <div class="dancer-pair">
+        <svg class="dancer-svg dancer-svg-boy" viewBox="0 0 60 70" width="32" height="38">
+          <ellipse class="dancer-shadow" cx="30" cy="66" rx="14" ry="3.4" />
+          <g class="dancer-leg dancer-leg-left">
+            <rect x="24" y="48" width="6" height="16" rx="3" />
+          </g>
+          <g class="dancer-leg dancer-leg-right">
+            <rect x="30" y="48" width="6" height="16" rx="3" />
+          </g>
+          <g class="dancer-arm dancer-arm-left">
+            <rect x="10" y="26" width="7" height="20" rx="3.5" />
+          </g>
+          <g class="dancer-arm dancer-arm-right">
+            <rect x="43" y="26" width="7" height="20" rx="3.5" />
+          </g>
+          <rect class="dancer-kurta" x="18" y="24" width="24" height="28" rx="8" />
+          <circle class="dancer-head" cx="30" cy="16" r="9" />
+          <path class="dancer-turban" d="M 19 15 Q 19 3 30 3 Q 41 3 41 15 Q 41 18 38 18 L 22 18 Q 19 18 19 15 Z" />
+          <rect class="dancer-turban-tail" x="38" y="8" width="4" height="12" rx="2" />
+          <circle class="dancer-turban-jewel" cx="30" cy="7" r="2.2" />
+        </svg>
+        <svg class="dancer-svg dancer-svg-girl" viewBox="0 0 60 70" width="30" height="36">
+          <ellipse class="dancer-shadow" cx="30" cy="66" rx="13" ry="3.2" />
+          <g class="dancer-leg-g dancer-leg-g-left">
+            <rect x="24" y="49" width="6" height="15" rx="3" />
+          </g>
+          <g class="dancer-leg-g dancer-leg-g-right">
+            <rect x="30" y="49" width="6" height="15" rx="3" />
+          </g>
+          <g class="dancer-arm-g dancer-arm-g-left">
+            <rect x="11" y="27" width="6.5" height="18" rx="3.2" />
+          </g>
+          <g class="dancer-arm-g dancer-arm-g-right">
+            <rect x="42.5" y="27" width="6.5" height="18" rx="3.2" />
+          </g>
+          <path class="dancer-dupatta" d="M 15 26 Q 8 40 16 52 L 21 51 Q 15 40 20 28 Z" />
+          <rect class="dancer-kameez" x="18.5" y="25" width="23" height="26" rx="9" />
+          <circle class="dancer-head" cx="30" cy="16" r="8.6" />
+          <path class="dancer-hair" d="M 21.5 12 Q 21 3 30 3 Q 39 3 38.5 12 Q 39 18 34 19 L 26 19 Q 21 18 21.5 12 Z" />
+          <circle class="dancer-hair-bun" cx="30" cy="4.5" r="3" />
+          <circle class="dancer-earring" cx="22" cy="18" r="1.3" />
+          <circle class="dancer-earring" cx="38" cy="18" r="1.3" />
+        </svg>
+      </div>
     </div>
     <div class="who">
       <button id="notif-btn" class="icon-btn hidden" title="Enable notifications">🔔</button>
@@ -245,6 +319,49 @@
       </div>
 
       <div id="chat-messages" class="chat-messages"></div>
+
+      <!-- A tiny wandering orange kitten that lives in the chat — purely for
+           fun, never intercepts taps, and reacts a little when messages
+           come in. -->
+      <div id="chat-cat" class="chat-cat" aria-hidden="true">
+        <div class="cat-bubble" id="cat-bubble">Meow~</div>
+        <div class="cat-zzz" id="cat-zzz"><span>z</span><span>Z</span><span>z</span></div>
+        <div class="cat-flip">
+          <svg class="cat-svg" viewBox="0 0 60 42" width="42" height="30">
+            <path class="cat-tail" d="M 10 26 Q -1 20 4 7 Q 6 2 12 4" />
+            <ellipse class="cat-body" cx="24" cy="28" rx="16" ry="10" />
+            <ellipse class="cat-belly" cx="21" cy="32" rx="7.5" ry="4.6" />
+            <g class="cat-leg-dots">
+              <ellipse cx="15" cy="37" rx="3" ry="3.2" />
+              <ellipse cx="22" cy="37.5" rx="3" ry="3.2" />
+              <ellipse cx="36" cy="37.5" rx="3" ry="3.2" />
+              <ellipse cx="43" cy="37" rx="3" ry="3.2" />
+            </g>
+            <g class="cat-paw-front">
+              <ellipse cx="39" cy="26" rx="3.4" ry="4.4" />
+            </g>
+            <circle class="cat-head" cx="46" cy="17" r="9.2" />
+            <path class="cat-ear cat-ear-left" d="M 39 11 L 36.5 2.5 L 44.5 8.5 Z" />
+            <path class="cat-ear cat-ear-right" d="M 50.5 8.5 L 55 1 L 53 10.5 Z" />
+            <path class="cat-ear-inner cat-ear-inner-left" d="M 40 9.5 L 39 5 L 43 8 Z" />
+            <path class="cat-ear-inner cat-ear-inner-right" d="M 50.5 8 L 53 3.5 L 52 9 Z" />
+            <path class="cat-stripe" d="M 41 9 Q 44 12 41 15" />
+            <path class="cat-stripe" d="M 24 21 Q 27 24 24 27" />
+            <path class="cat-stripe" d="M 33 33 Q 36 36 33 39" />
+            <g class="cat-eye cat-eye-left"><circle cx="43.3" cy="16.2" r="1.35" /></g>
+            <g class="cat-eye cat-eye-right"><circle cx="48.6" cy="15.4" r="1.35" /></g>
+            <path class="cat-eye-closed cat-eye-closed-left" d="M 41.8 16.2 Q 43.3 17.6 44.8 16.2" />
+            <path class="cat-eye-closed cat-eye-closed-right" d="M 47.1 15.4 Q 48.6 16.8 50.1 15.4" />
+            <path class="cat-whisker" d="M 38 17 L 30 15.5" />
+            <path class="cat-whisker" d="M 38 19.5 L 30 20" />
+            <path class="cat-whisker" d="M 39 22 L 32 24" />
+            <path class="cat-nose" d="M 45.3 19.6 L 47.3 19.6 L 46.3 21 Z" />
+            <path class="cat-mouth-closed" d="M 46.3 21 Q 44.5 23 43 21.8 M 46.3 21 Q 48.1 23 49.6 21.8" />
+            <ellipse class="cat-mouth-open" cx="46.3" cy="22.6" rx="1.7" ry="2.1" />
+          </svg>
+        </div>
+      </div>
+
       <div id="typing-indicator" class="typing-indicator hidden">
         <div id="typing-indicator-avatars" class="typing-indicator-avatars"></div>
         <div class="typing-indicator-dots"><span></span><span></span><span></span></div>
