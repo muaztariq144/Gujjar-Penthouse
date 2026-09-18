@@ -1,999 +1,1795 @@
-// Gujjar Penthouse — household social app (feed, chat, tasks, polls, calling)
-// Beginner-friendly, single-file backend. No native/compiled dependencies
-// (data is stored in a plain JSON file), so `npm install` works everywhere.
+/* =========================================================================
+   Gujjar Penthouse — design system
+   A calm, premium, "consumer product" visual language: soft neutral
+   surfaces, one confident accent color, generous spacing, gentle depth,
+   and small, intentional motion. Every existing class/id below is kept —
+   this file only changes how things look, never what JS hooks into.
+   ========================================================================= */
 
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const bcrypt = require('bcryptjs');
-const { v4: uuid } = require('uuid');
-const webpush = require('web-push');
-const multer = require('multer');
-const { createStore } = require('./lib/jsondb');
+:root {
+  /* ---- Brand / accent ---- */
+  --accent: #0EA5A0;
+  --accent-dark: #0B8783;
+  --accent-soft: rgba(14, 165, 160, 0.12);
+  --accent-contrast: #ffffff;
+  --brand-gradient: linear-gradient(135deg, #18C7B8 0%, #5B6CFF 100%);
 
-// ---------- Setup ----------
-const PORT = process.env.PORT || 3000;
-// If a Railway Volume is attached, Railway automatically sets
-// RAILWAY_VOLUME_MOUNT_PATH — use it so the database and uploaded media
-// survive redeploys, not just restarts. DATA_DIR still wins if set by hand.
-const DATA_DIR = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
-const DB_PATH = path.join(DATA_DIR, 'app.json');
-const { data: db, save } = createStore(DB_PATH);
+  /* ---- Semantic ---- */
+  --positive: #1FAE6B;
+  --positive-soft: rgba(31, 174, 107, 0.12);
+  --danger: #FF3B30;
+  --danger-soft: rgba(255, 59, 48, 0.1);
 
-// ---------- Uploaded media (chat photos/videos/files, feed post photos) ----------
-// Stored on disk next to the database (same persistence caveats as the JSON
-// db itself: survives restarts, but a fresh Railway deploy without a Volume
-// wipes it). Served back out at /uploads/<filename>.
-const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  /* ---- Neutrals (light) ---- */
+  --bg: #F5F5F7;
+  --bg-elevated: #FFFFFF;
+  --bg-subtle: #F0F0F2;
+  --bg-subtle-hover: #E8E8EB;
+  --card: #FFFFFF;
+  --text: #1D1D1F;
+  --muted: #6E6E73;
+  --muted-2: #A0A0A5;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --input-bg: #F5F5F7;
+  --input-bg-focus: #FFFFFF;
+  --modal-overlay: rgba(20, 20, 22, 0.45);
+  --header-bg: #16161A;
+  --header-text: rgba(255, 255, 255, 0.92);
+  --header-text-muted: rgba(255, 255, 255, 0.6);
 
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname || '').slice(0, 10);
-      cb(null, `${uuid()}${ext}`);
-    },
-  }),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
-});
+  --bubble-out: #E4F7F4;
+  --bubble-out-text: #0C3E3B;
+  --bubble-in: #FFFFFF;
+  --bubble-in-text: #1D1D1F;
 
-// ---------- Push notifications ----------
-// These VAPID keys identify this server to push services (Google, Apple, etc).
-// They're safe to keep here since this is a private repo — but you can override
-// them with environment variables of the same name if you ever want to.
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY
-  || 'BJVSYev3ichUhn3boLtuYAdaOshJ2uuY-UVIJZgBUvDrAnmFDJew8mDOly-pYNi1F8aYJMCb8HxB4zkVfgwGPuI';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
-  || 'AYSFpjOE8BR6KSEOfQ3dL36CPE0ohtDpnPjuQdwCemA';
+  /* ---- Scale ---- */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 26px;
+  --radius-full: 999px;
 
-webpush.setVapidDetails('mailto:gujjarpenthouse@gmail.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  --shadow-xs: 0 1px 2px rgba(20, 20, 22, 0.04);
+  --shadow-sm: 0 2px 8px rgba(20, 20, 22, 0.06), 0 1px 2px rgba(20, 20, 22, 0.04);
+  --shadow-md: 0 8px 24px rgba(20, 20, 22, 0.10), 0 2px 6px rgba(20, 20, 22, 0.06);
+  --shadow-lg: 0 20px 48px rgba(20, 20, 22, 0.20), 0 4px 12px rgba(20, 20, 22, 0.08);
 
-// ---------- Email (used for "forgot password" one-time codes) ----------
-// Sent through Brevo's HTTPS email API (https://www.brevo.com) rather than
-// classic SMTP. Railway blocks outbound SMTP ports (25, 465, 587) on its
-// Free/Trial/Hobby plans "to prevent spam and abuse", so a Gmail-SMTP-based
-// mailer (what this used to be) can never actually send from a Railway app
-// on those plans — the request just hangs. Brevo's API runs over plain
-// HTTPS like any other web request, so it works on every Railway plan.
-//
-// Configure by setting BREVO_API_KEY + EMAIL_FROM as environment variables
-// on Railway. If they're not set, OTP codes are just printed to the server
-// log instead of emailed — handy for local testing, but roommates won't get
-// a real email until this is set up.
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
-const EMAIL_FROM = process.env.EMAIL_FROM;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
-async function sendOtpEmail(toEmail, otp) {
-  const subject = 'Your Gujjar Penthouse password reset code';
-  const text = `Your password reset code is ${otp}. It expires in 15 minutes. If you didn't ask for this, you can ignore this email.`;
-  const html = `
-    <div style="font-family:sans-serif;max-width:420px;margin:0 auto;">
-      <h2 style="color:#005e54;">Gujjar Penthouse</h2>
-      <p>Your password reset code is:</p>
-      <p style="font-size:32px;font-weight:700;letter-spacing:6px;color:#005e54;">${otp}</p>
-      <p style="color:#667781;font-size:13px;">This code expires in 15 minutes. If you didn't ask for this, you can ignore this email.</p>
-    </div>
-  `;
-
-  if (!BREVO_API_KEY || !EMAIL_FROM) {
-    // Not configured — log it so whoever is running the server locally can still test the flow.
-    console.log(`[dev only] Password reset code for ${toEmail}: ${otp}`);
-    return;
-  }
-
-  // A hard timeout so a flaky network can never leave the request (and the
-  // "Send code" button on the frontend) hanging forever with no feedback.
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-  let response;
-  try {
-    response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': BREVO_API_KEY,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        sender: { name: 'Gujjar Penthouse', email: EMAIL_FROM },
-        to: [{ email: toEmail }],
-        subject,
-        textContent: text,
-        htmlContent: html,
-      }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Email service timed out. Please try again.');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`Brevo API error ${response.status}: ${body}`);
-  }
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-// Sends a notification to every subscribed device belonging to the given users
-// (or everyone, if excludeUserId is the only filter). Cleans up subscriptions
-// that have gone stale (e.g. the user uninstalled the app).
-async function sendPushToUsers({ excludeUserId, onlyUserId, title, body, tag, type, data }) {
-  const targets = onlyUserId
-    ? db.pushSubscriptions.filter(s => s.user_id === onlyUserId)
-    : db.pushSubscriptions.filter(s => s.user_id !== excludeUserId);
-  const stillValid = [];
-  let changed = false;
+/* ---------- Dark mode ---------- */
+:root[data-theme="dark"] {
+  --accent: #22C7C0;
+  --accent-dark: #17A39D;
+  --accent-soft: rgba(34, 199, 192, 0.16);
 
-  const payload = JSON.stringify({ title, body, tag, type, data });
+  --positive: #34D07E;
+  --positive-soft: rgba(52, 208, 126, 0.14);
+  --danger: #FF6961;
+  --danger-soft: rgba(255, 105, 97, 0.14);
 
-  await Promise.all(targets.map(async (sub) => {
-    try {
-      await webpush.sendNotification(sub.subscription, payload);
-      stillValid.push(sub);
-    } catch (err) {
-      changed = true; // subscription expired or was revoked — drop it
-    }
-  }));
+  --bg: #000000;
+  --bg-elevated: #1C1C1E;
+  --bg-subtle: #242426;
+  --bg-subtle-hover: #2C2C2E;
+  --card: #1C1C1E;
+  --text: #F5F5F7;
+  --muted: #98989D;
+  --muted-2: #6E6E73;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --input-bg: #242426;
+  --input-bg-focus: #2C2C2E;
+  --modal-overlay: rgba(0, 0, 0, 0.65);
+  --header-bg: #0A0A0B;
+  --header-text: rgba(255, 255, 255, 0.94);
+  --header-text-muted: rgba(255, 255, 255, 0.55);
 
-  if (changed) {
-    const keptEndpoints = new Set(stillValid.map(s => s.subscription.endpoint));
-    db.pushSubscriptions = db.pushSubscriptions.filter((s) => {
-      const inScope = onlyUserId ? s.user_id === onlyUserId : s.user_id !== excludeUserId;
-      return !inScope || keptEndpoints.has(s.subscription.endpoint);
-    });
-    save();
-  }
+  --bubble-out: #0F3F3B;
+  --bubble-out-text: #E4F7F4;
+  --bubble-in: #242426;
+  --bubble-in-text: #F5F5F7;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6);
 }
 
-// In-app "recent notifications" feed (separate from browser push notifications
-// above — this is what shows up in the Home tab even without push enabled).
-function addNotification(userId, type, text) {
-  if (!userId) return;
-  const notification = { id: uuid(), user_id: userId, type, text, created_at: Date.now(), read: false };
-  db.notifications.push(notification);
-  // Let that person's Home tab pick it up live, the same way chat messages
-  // and feed posts do, instead of only showing up on their next visit.
-  io.emit('notification:new', {
-    userId,
-    notification: { id: notification.id, type: notification.type, text: notification.text, createdAt: notification.created_at, read: false },
-  });
+:root[data-theme="dark"] .split-list label,
+:root[data-theme="dark"] .attach-btn { background: var(--bg-subtle); }
+
+/* ---------- Reset ---------- */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html { background: var(--bg); }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  transition: background 0.25s var(--ease), color 0.25s var(--ease);
 }
 
-// Short, human quote of a caption/comment for inside a notification line —
-// so notifications say specifically what happened, not just that "something" did.
-function quoteSnippet(text, maxLen = 60) {
-  const trimmed = (text || '').trim();
-  if (!trimmed) return '';
-  return trimmed.length > maxLen ? `"${trimmed.slice(0, maxLen - 1)}…"` : `"${trimmed}"`;
+h1, h2, h3 { font-family: inherit; letter-spacing: -0.01em; }
+
+.hidden { display: none !important; }
+
+.screen { min-height: 100vh; }
+
+::selection { background: var(--accent-soft); }
+
+/* Slim, unobtrusive scrollbars where supported */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Motion ---------- */
+@keyframes gp-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes gp-pop-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes gp-sheet-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gp-spin {
+  to { transform: rotate(360deg); }
 }
 
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR));
-
-const server = http.createServer(app);
-const io = new Server(server);
-
-// ---------- Helpers ----------
-function publicUser(u) {
-  return { id: u.id, name: u.name, avatarUrl: u.avatar_url || null };
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
 
-// A fuller version of the user's own profile — only ever sent back to that user themselves.
-function privateProfile(u) {
-  return { id: u.id, name: u.name, email: u.email || null, avatarUrl: u.avatar_url || null };
+/* ---------- Avatars ---------- */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: white;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+  user-select: none;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.25);
 }
 
-function findUserById(id) {
-  return db.users.find(u => u.id === id) || null;
+/* ---------- Form elements (shared) ---------- */
+input, textarea {
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-family: inherit;
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text);
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 
-function getUserByToken(token) {
-  if (!token) return null;
-  const session = db.sessions.find(s => s.token === token);
-  if (!session) return null;
-  return findUserById(session.user_id);
+input::placeholder, textarea::placeholder { color: var(--muted-2); }
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-bg-focus);
+  box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-function authMiddleware(req, res, next) {
-  const token = req.headers['authorization']?.replace('Bearer ', '');
-  const user = getUserByToken(token);
-  if (!user) return res.status(401).json({ error: 'Not logged in.' });
-  req.user = user;
-  next();
+button {
+  padding: 13px 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 15px;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+  transition: background 0.15s var(--ease), transform 0.12s var(--ease), box-shadow 0.15s var(--ease), opacity 0.15s var(--ease);
 }
 
-// ---------- Auth routes ----------
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-app.post('/api/signup', (req, res) => {
-  const { name, email, password } = req.body || {};
-  if (!name || !password || password.length < 4) {
-    return res.status(400).json({ error: 'Name and a password (4+ chars) are required.' });
-  }
-  const trimmedName = name.trim();
-  const trimmedEmail = (email || '').trim().toLowerCase();
-  if (!trimmedEmail || !EMAIL_RE.test(trimmedEmail)) {
-    return res.status(400).json({ error: 'A valid email address is required (used for password resets).' });
-  }
-
-  const existingName = db.users.find(u => u.name === trimmedName);
-  if (existingName) return res.status(400).json({ error: 'That name is already taken. Try logging in instead.' });
-  const existingEmail = db.users.find(u => u.email === trimmedEmail);
-  if (existingEmail) return res.status(400).json({ error: 'That email is already registered. Try logging in instead.' });
-
-  const id = uuid();
-  const hash = bcrypt.hashSync(password, 10);
-  const newUser = { id, name: trimmedName, email: trimmedEmail, avatar_url: null, password_hash: hash, created_at: Date.now() };
-  db.users.push(newUser);
-
-  const token = uuid();
-  db.sessions.push({ token, user_id: id, created_at: Date.now() });
-  save();
-  res.json({ token, user: privateProfile(newUser) });
-
-  // Let everyone else's app pick up the new roommate live (split checkboxes,
-  // task assignee list, etc.) without needing to reload.
-  io.emit('user:new', publicUser(newUser));
-});
-
-app.post('/api/login', (req, res) => {
-  const { name, password } = req.body || {};
-  const user = db.users.find(u => u.name === (name || '').trim());
-  if (!user || !bcrypt.compareSync(password || '', user.password_hash)) {
-    return res.status(401).json({ error: 'Wrong name or password.' });
-  }
-  const token = uuid();
-  db.sessions.push({ token, user_id: user.id, created_at: Date.now() });
-  save();
-  res.json({ token, user: privateProfile(user) });
-});
-
-app.get('/api/me', authMiddleware, (req, res) => {
-  res.json({ user: privateProfile(req.user) });
-});
-
-app.patch('/api/me', authMiddleware, (req, res) => {
-  const { name, email, avatarUrl } = req.body || {};
-
-  if (typeof name === 'string' && name.trim()) {
-    const trimmedName = name.trim();
-    const clash = db.users.find(u => u.id !== req.user.id && u.name === trimmedName);
-    if (clash) return res.status(400).json({ error: 'That name is already taken.' });
-    req.user.name = trimmedName;
-  }
-
-  if (typeof email === 'string' && email.trim()) {
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!EMAIL_RE.test(trimmedEmail)) return res.status(400).json({ error: 'That email address looks invalid.' });
-    const clash = db.users.find(u => u.id !== req.user.id && u.email === trimmedEmail);
-    if (clash) return res.status(400).json({ error: 'That email is already registered to another account.' });
-    req.user.email = trimmedEmail;
-  }
-
-  if (typeof avatarUrl === 'string') {
-    req.user.avatar_url = avatarUrl || null;
-  }
-
-  save();
-  io.emit('user:updated', publicUser(req.user));
-  res.json({ ok: true, user: privateProfile(req.user) });
-});
-
-app.post('/api/change-password', authMiddleware, (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-  if (!bcrypt.compareSync(currentPassword || '', req.user.password_hash)) {
-    return res.status(401).json({ error: 'Current password is incorrect.' });
-  }
-  if (!newPassword || newPassword.length < 4) {
-    return res.status(400).json({ error: 'New password must be at least 4 characters.' });
-  }
-  req.user.password_hash = bcrypt.hashSync(newPassword, 10);
-  save();
-  res.json({ ok: true });
-});
-
-// ---------- Forgot password (email OTP) ----------
-app.post('/api/forgot-password', async (req, res) => {
-  const { email } = req.body || {};
-  const trimmedEmail = (email || '').trim().toLowerCase();
-  // Always respond the same way whether or not the email exists, so this
-  // can't be used to check who has an account.
-  const genericResponse = { ok: true, message: 'If that email is registered, a code has been sent to it.' };
-  if (!trimmedEmail) return res.json(genericResponse);
-
-  const user = db.users.find(u => u.email === trimmedEmail);
-  if (!user) return res.json(genericResponse);
-
-  const otp = String(Math.floor(100000 + Math.random() * 900000));
-  db.passwordResets = db.passwordResets.filter(r => r.email !== trimmedEmail); // drop older codes
-  db.passwordResets.push({
-    email: trimmedEmail,
-    otp,
-    expires_at: Date.now() + 15 * 60 * 1000,
-    used: false,
-    created_at: Date.now(),
-  });
-  save();
-
-  try {
-    await sendOtpEmail(trimmedEmail, otp);
-  } catch (err) {
-    console.error('Failed to send OTP email:', err.message);
-    return res.status(500).json({ error: 'Could not send the reset email right now. Please try again shortly.' });
-  }
-
-  res.json(genericResponse);
-});
-
-app.post('/api/reset-password', (req, res) => {
-  const { email, otp, newPassword } = req.body || {};
-  const trimmedEmail = (email || '').trim().toLowerCase();
-  const trimmedOtp = (otp || '').trim();
-
-  if (!newPassword || newPassword.length < 4) {
-    return res.status(400).json({ error: 'New password must be at least 4 characters.' });
-  }
-
-  const reset = db.passwordResets.find(r => r.email === trimmedEmail && r.otp === trimmedOtp && !r.used);
-  if (!reset || reset.expires_at < Date.now()) {
-    return res.status(400).json({ error: 'That code is invalid or has expired. Request a new one.' });
-  }
-
-  const user = db.users.find(u => u.email === trimmedEmail);
-  if (!user) return res.status(400).json({ error: 'That code is invalid or has expired. Request a new one.' });
-
-  user.password_hash = bcrypt.hashSync(newPassword, 10);
-  reset.used = true;
-  // Log the user out of every device — their old password (and any leaked
-  // session tokens) shouldn't keep working after a reset.
-  db.sessions = db.sessions.filter(s => s.user_id !== user.id);
-  save();
-
-  res.json({ ok: true });
-});
-
-// ---------- Users ----------
-app.get('/api/users', authMiddleware, (req, res) => {
-  res.json({ users: db.users.map(publicUser) });
-});
-
-// ---------- Tasks (create & assign to a roommate, with a due date) ----------
-function publicTask(t) {
-  const assignee = findUserById(t.assigned_to);
-  const assigner = findUserById(t.assigned_by);
-  return {
-    id: t.id,
-    title: t.title,
-    dueDate: t.due_date,
-    done: !!t.done,
-    createdAt: t.created_at,
-    assignedTo: assignee ? publicUser(assignee) : null,
-    assignedBy: assigner ? publicUser(assigner) : null,
-  };
+button:hover { background: var(--accent-dark); }
+button:active { transform: scale(0.97); }
+button:disabled { opacity: 0.55; cursor: default; transform: none; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-function sortTasks(tasks) {
-  return [...tasks].sort((a, b) => {
-    if (!!a.done !== !!b.done) return a.done ? 1 : -1; // pending first
-    const ad = a.due_date ? new Date(a.due_date).getTime() : Infinity;
-    const bd = b.due_date ? new Date(b.due_date).getTime() : Infinity;
-    if (ad !== bd) return ad - bd; // soonest due date first
-    return b.created_at - a.created_at;
-  });
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+  min-height: 16px;
+  margin: 0;
+  animation: gp-fade-up 0.2s var(--ease);
 }
 
-app.get('/api/tasks', authMiddleware, (req, res) => {
-  res.json({ tasks: sortTasks(db.tasks).map(publicTask) });
-});
-
-app.post('/api/tasks', authMiddleware, (req, res) => {
-  const { title, assignedTo, dueDate } = req.body || {};
-  const trimmedTitle = typeof title === 'string' ? title.trim() : '';
-  if (!trimmedTitle) return res.status(400).json({ error: 'Give the task a title.' });
-
-  const assignee = findUserById(assignedTo);
-  if (!assignee) return res.status(400).json({ error: 'Pick who this task is for.' });
-
-  let cleanDueDate = null;
-  if (typeof dueDate === 'string' && dueDate.trim()) {
-    if (isNaN(new Date(dueDate).getTime())) return res.status(400).json({ error: 'That due date looks invalid.' });
-    cleanDueDate = dueDate.trim();
-  }
-
-  const task = {
-    id: uuid(),
-    title: trimmedTitle,
-    assigned_to: assignee.id,
-    assigned_by: req.user.id,
-    due_date: cleanDueDate,
-    done: false,
-    created_at: Date.now(),
-    completed_at: null,
-  };
-  db.tasks.push(task);
-
-  if (assignee.id !== req.user.id) {
-    addNotification(
-      assignee.id,
-      'task',
-      `${req.user.name} assigned you a task: "${trimmedTitle}"${cleanDueDate ? ` — due ${cleanDueDate}` : ''}`
-    );
-  }
-  save();
-
-  const publicVersion = publicTask(task);
-  io.emit('task:new', publicVersion);
-  res.json({ ok: true, task: publicVersion });
-
-  if (assignee.id !== req.user.id) {
-    sendPushToUsers({
-      onlyUserId: assignee.id,
-      title: `${req.user.name} assigned you a task`,
-      body: trimmedTitle,
-      tag: 'gp-task',
-    }).catch(() => {});
-  }
-});
-
-app.post('/api/tasks/:id/toggle', authMiddleware, (req, res) => {
-  const task = db.tasks.find(t => t.id === req.params.id);
-  if (!task) return res.status(404).json({ error: 'Task not found.' });
-
-  task.done = !task.done;
-  task.completed_at = task.done ? Date.now() : null;
-  save();
-
-  const publicVersion = publicTask(task);
-  io.emit('task:updated', publicVersion);
-  res.json({ ok: true, task: publicVersion });
-});
-
-app.delete('/api/tasks/:id', authMiddleware, (req, res) => {
-  db.tasks = db.tasks.filter(t => t.id !== req.params.id);
-  save();
-  io.emit('task:deleted', { id: req.params.id });
-  res.json({ ok: true });
-});
-
-// ---------- In-app notifications feed (Home tab) ----------
-app.get('/api/notifications', authMiddleware, (req, res) => {
-  const mine = db.notifications
-    .filter(n => n.user_id === req.user.id)
-    .sort((a, b) => b.created_at - a.created_at)
-    .slice(0, 20);
-
-  const result = mine.map(n => ({ id: n.id, type: n.type, text: n.text, createdAt: n.created_at, read: n.read }));
-
-  // Viewing the feed marks these as read, the same way opening a chat app
-  // clears its unread badge.
-  let changed = false;
-  for (const n of mine) { if (!n.read) { n.read = true; changed = true; } }
-  if (changed) save();
-
-  res.json({ notifications: result });
-});
-
-// ---------- Public profile (Instagram-style "view someone's profile") ----------
-// Read-only from the viewer's side: their posts and their tasks — but never
-// their email, password, or anything editable.
-app.get('/api/users/:id/profile', authMiddleware, (req, res) => {
-  const user = findUserById(req.params.id);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-
-  const posts = db.posts
-    .filter(p => p.user_id === user.id)
-    .sort((a, b) => b.created_at - a.created_at)
-    .map(p => publicPost(p, req.user.id));
-
-  const tasks = sortTasks(db.tasks.filter(t => t.assigned_to === user.id)).map(publicTask);
-
-  res.json({
-    user: publicUser(user),
-    joinedAt: user.created_at,
-    isMe: user.id === req.user.id,
-    posts,
-    tasks,
-  });
-});
-
-// ---------- Media uploads (used by chat attachments and feed posts) ----------
-app.post('/api/upload', authMiddleware, (req, res) => {
-  upload.single('file')(req, res, (err) => {
-    if (err) {
-      const message = err.code === 'LIMIT_FILE_SIZE' ? 'File is too big (max 25MB).' : 'Could not upload that file.';
-      return res.status(400).json({ error: message });
-    }
-    if (!req.file) return res.status(400).json({ error: 'No file received.' });
-
-    const mime = req.file.mimetype || '';
-    const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : 'file';
-
-    res.json({
-      url: `/uploads/${req.file.filename}`,
-      name: req.file.originalname,
-      mime,
-      kind,
-      size: req.file.size,
-    });
-  });
-});
-
-// ---------- Push notifications ----------
-app.get('/api/push/public-key', (req, res) => {
-  res.json({ publicKey: VAPID_PUBLIC_KEY });
-});
-
-app.post('/api/push/subscribe', authMiddleware, (req, res) => {
-  const { subscription } = req.body || {};
-  if (!subscription || !subscription.endpoint) {
-    return res.status(400).json({ error: 'Missing push subscription.' });
-  }
-  // Replace any existing subscription for this exact device.
-  db.pushSubscriptions = db.pushSubscriptions.filter(s => s.subscription.endpoint !== subscription.endpoint);
-  db.pushSubscriptions.push({ user_id: req.user.id, subscription, created_at: Date.now() });
-  save();
-  res.json({ ok: true });
-});
-
-app.post('/api/push/unsubscribe', authMiddleware, (req, res) => {
-  const { endpoint } = req.body || {};
-  db.pushSubscriptions = db.pushSubscriptions.filter(s => s.subscription.endpoint !== endpoint);
-  save();
-  res.json({ ok: true });
-});
-
-// ---------- Polls (any member can start a referendum with a time limit) ----------
-function publicPoll(p, viewerId) {
-  const now = Date.now();
-  const closed = now >= p.expires_at;
-  const totalVotes = p.options.reduce((sum, o) => sum + o.votes.length, 0);
-  return {
-    id: p.id,
-    question: p.question,
-    options: p.options.map((o, idx) => ({
-      idx,
-      text: o.text,
-      voteCount: o.votes.length,
-      percent: totalVotes ? Math.round((o.votes.length / totalVotes) * 100) : 0,
-    })),
-    totalVotes,
-    createdBy: publicUser(findUserById(p.created_by)) || null,
-    createdAt: p.created_at,
-    expiresAt: p.expires_at,
-    closed,
-    myVote: viewerId != null ? (p.options.findIndex(o => o.votes.includes(viewerId)) === -1 ? null : p.options.findIndex(o => o.votes.includes(viewerId))) : null,
-  };
+.success {
+  color: var(--positive);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  animation: gp-fade-up 0.2s var(--ease);
 }
 
-function sortPolls(polls) {
-  return [...polls].sort((a, b) => {
-    const aClosed = Date.now() >= a.expires_at;
-    const bClosed = Date.now() >= b.expires_at;
-    if (aClosed !== bClosed) return aClosed ? 1 : -1; // open polls first
-    return b.created_at - a.created_at;
-  });
+/* ---------- Auth screen ---------- */
+#auth-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(14, 165, 160, 0.16), transparent 60%),
+    var(--bg);
 }
 
-app.get('/api/polls', authMiddleware, (req, res) => {
-  res.json({ polls: sortPolls(db.polls).map(p => publicPoll(p, req.user.id)) });
-});
-
-app.post('/api/polls', authMiddleware, (req, res) => {
-  const { question, options, durationMinutes } = req.body || {};
-  const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
-  if (!trimmedQuestion) return res.status(400).json({ error: 'Give the poll a question.' });
-
-  const cleanOptions = Array.isArray(options)
-    ? options.map(o => (typeof o === 'string' ? o.trim() : '')).filter(Boolean).slice(0, 8)
-    : [];
-  if (cleanOptions.length < 2) return res.status(400).json({ error: 'Add at least 2 options.' });
-
-  const minutes = Number(durationMinutes);
-  const durMs = Number.isFinite(minutes) && minutes > 0 ? minutes * 60 * 1000 : 24 * 60 * 60 * 1000;
-  const cappedMs = Math.min(durMs, 30 * 24 * 60 * 60 * 1000); // cap at 30 days
-
-  const poll = {
-    id: uuid(),
-    question: trimmedQuestion,
-    options: cleanOptions.map(text => ({ text, votes: [] })),
-    created_by: req.user.id,
-    created_at: Date.now(),
-    expires_at: Date.now() + cappedMs,
-  };
-  db.polls.push(poll);
-
-  for (const u of db.users) {
-    if (u.id === req.user.id) continue;
-    addNotification(u.id, 'poll', `${req.user.name} started a poll: "${trimmedQuestion}"`);
-  }
-  save();
-
-  const publicVersion = publicPoll(poll, req.user.id);
-  io.emit('poll:new', publicVersion);
-  res.json({ ok: true, poll: publicVersion });
-
-  sendPushToUsers({
-    excludeUserId: req.user.id,
-    title: `${req.user.name} started a poll`,
-    body: trimmedQuestion,
-    tag: 'gp-poll',
-  }).catch(() => {});
-});
-
-app.post('/api/polls/:id/vote', authMiddleware, (req, res) => {
-  const poll = db.polls.find(p => p.id === req.params.id);
-  if (!poll) return res.status(404).json({ error: 'Poll not found.' });
-  if (Date.now() >= poll.expires_at) return res.status(400).json({ error: 'This poll has closed.' });
-
-  const optionIdx = Number(req.body?.optionIdx);
-  if (!Number.isInteger(optionIdx) || optionIdx < 0 || optionIdx >= poll.options.length) {
-    return res.status(400).json({ error: 'Invalid option.' });
-  }
-
-  // One vote per member — voting again changes their vote.
-  for (const opt of poll.options) {
-    const idx = opt.votes.indexOf(req.user.id);
-    if (idx !== -1) opt.votes.splice(idx, 1);
-  }
-  poll.options[optionIdx].votes.push(req.user.id);
-  save();
-
-  // Broadcast the fresh tallies to everyone (per-viewer myVote is computed client-side isn't possible,
-  // so we emit the raw counts and let each client keep its own "myVote" from its own action/state).
-  io.emit('poll:updated', {
-    id: poll.id,
-    options: poll.options.map((o, idx) => ({ idx, voteCount: o.votes.length })),
-    totalVotes: poll.options.reduce((sum, o) => sum + o.votes.length, 0),
-  });
-  res.json({ ok: true, poll: publicPoll(poll, req.user.id) });
-});
-
-app.delete('/api/polls/:id', authMiddleware, (req, res) => {
-  const poll = db.polls.find(p => p.id === req.params.id);
-  if (!poll) return res.status(404).json({ error: 'Poll not found.' });
-  if (poll.created_by !== req.user.id) return res.status(403).json({ error: 'You can only delete polls you started.' });
-
-  db.polls = db.polls.filter(p => p.id !== req.params.id);
-  save();
-  io.emit('poll:deleted', { id: req.params.id });
-  res.json({ ok: true });
-});
-
-// ---------- Chat ----------
-app.get('/api/messages', authMiddleware, (req, res) => {
-  const messages = [...db.messages].sort((a, b) => a.created_at - b.created_at).slice(-200);
-  res.json({ messages });
-});
-
-// ---------- Feed (Instagram-style posts, likes, comments) ----------
-function publicPost(post, viewerId) {
-  return {
-    id: post.id,
-    user_id: post.user_id,
-    user_name: post.user_name,
-    caption: post.caption,
-    media: post.media || null,
-    created_at: post.created_at,
-    likes: post.likes,
-    likeCount: post.likes.length,
-    likedByMe: post.likes.includes(viewerId),
-    comments: post.comments,
-  };
+:root[data-theme="dark"] #auth-screen {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(34, 199, 192, 0.14), transparent 60%),
+    var(--bg);
 }
 
-app.get('/api/posts', authMiddleware, (req, res) => {
-  const posts = [...db.posts]
-    .sort((a, b) => b.created_at - a.created_at)
-    .map(p => publicPost(p, req.user.id));
-  res.json({ posts });
-});
-
-app.post('/api/posts', authMiddleware, (req, res) => {
-  const { caption, media } = req.body || {};
-  const trimmedCaption = typeof caption === 'string' ? caption.trim() : '';
-  const cleanMedia = media && typeof media.url === 'string'
-    ? {
-        url: media.url,
-        kind: ['image', 'video'].includes(media.kind) ? media.kind : 'image',
-      }
-    : null;
-
-  if (!trimmedCaption && !cleanMedia) {
-    return res.status(400).json({ error: 'Add a caption or a photo/video to post.' });
-  }
-
-  const post = {
-    id: uuid(),
-    user_id: req.user.id,
-    user_name: req.user.name,
-    caption: trimmedCaption,
-    media: cleanMedia,
-    likes: [],
-    comments: [],
-    created_at: Date.now(),
-  };
-  db.posts.push(post);
-
-  const captionSnippet = quoteSnippet(trimmedCaption);
-  const postKind = cleanMedia?.kind === 'video' ? 'a video' : cleanMedia ? 'a photo' : 'a post';
-  for (const u of db.users) {
-    if (u.id === req.user.id) continue;
-    addNotification(u.id, 'post', `${req.user.name} shared ${postKind}${captionSnippet ? `: ${captionSnippet}` : ''}`);
-  }
-  save();
-
-  const publicVersion = publicPost(post, req.user.id);
-  io.emit('post:new', publicVersion);
-  res.json({ ok: true, post: publicVersion });
-
-  sendPushToUsers({
-    excludeUserId: req.user.id,
-    title: `${req.user.name} posted to the feed`,
-    body: trimmedCaption || (cleanMedia?.kind === 'video' ? '🎥 New video' : '📷 New photo'),
-    tag: 'gp-feed',
-  }).catch(() => {});
-});
-
-app.delete('/api/posts/:id', authMiddleware, (req, res) => {
-  const post = db.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post not found.' });
-  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'You can only delete your own posts.' });
-
-  db.posts = db.posts.filter(p => p.id !== req.params.id);
-  save();
-  io.emit('post:deleted', { id: req.params.id });
-  res.json({ ok: true });
-});
-
-app.post('/api/posts/:id/like', authMiddleware, (req, res) => {
-  const post = db.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post not found.' });
-
-  const idx = post.likes.indexOf(req.user.id);
-  const nowLiked = idx === -1;
-  if (nowLiked) post.likes.push(req.user.id);
-  else post.likes.splice(idx, 1);
-
-  if (nowLiked && post.user_id !== req.user.id) {
-    const captionSnippet = quoteSnippet(post.caption);
-    addNotification(post.user_id, 'like', `${req.user.name} liked your post${captionSnippet ? `: ${captionSnippet}` : ''}`);
-  }
-  save();
-
-  io.emit('post:like-update', { id: post.id, likes: post.likes });
-  res.json({ ok: true, likes: post.likes });
-
-  if (nowLiked && post.user_id !== req.user.id) {
-    sendPushToUsers({
-      excludeUserId: req.user.id,
-      title: `${req.user.name} liked your post`,
-      body: post.caption || '❤️',
-      tag: 'gp-feed-like',
-    }).catch(() => {});
-  }
-});
-
-app.post('/api/posts/:id/comments', authMiddleware, (req, res) => {
-  const post = db.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post not found.' });
-
-  const { text } = req.body || {};
-  const trimmed = typeof text === 'string' ? text.trim() : '';
-  if (!trimmed) return res.status(400).json({ error: 'Comment cannot be empty.' });
-
-  const comment = {
-    id: uuid(),
-    user_id: req.user.id,
-    user_name: req.user.name,
-    text: trimmed.slice(0, 500),
-    created_at: Date.now(),
-  };
-  post.comments.push(comment);
-
-  if (post.user_id !== req.user.id) {
-    addNotification(post.user_id, 'comment', `${req.user.name} commented on your post: ${quoteSnippet(comment.text)}`);
-  }
-  save();
-
-  io.emit('post:comment-new', { postId: post.id, comment });
-  res.json({ ok: true, comment });
-
-  if (post.user_id !== req.user.id) {
-    sendPushToUsers({
-      excludeUserId: req.user.id,
-      title: `${req.user.name} commented on your post`,
-      body: comment.text,
-      tag: 'gp-feed-comment',
-    }).catch(() => {});
-  }
-});
-
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token;
-  const user = getUserByToken(token);
-  if (!user) return next(new Error('unauthorized'));
-  socket.user = publicUser(user);
-  next();
-});
-
-// ---------- Chat typing indicator ----------
-// Map of socket.id -> { userId, userName, avatarUrl }, everyone currently typing in chat.
-const typingUsers = new Map();
-
-function broadcastTyping() {
-  // De-dupe by userId in case someone has the app open on two devices.
-  const seen = new Map();
-  for (const info of typingUsers.values()) seen.set(info.userId, info);
-  io.emit('chat:typing-users', [...seen.values()]);
+.auth-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 36px 30px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow-lg);
+  animation: gp-pop-in 0.35s var(--ease-spring);
 }
 
-function stopTyping(socket) {
-  if (typingUsers.has(socket.id)) {
-    typingUsers.delete(socket.id);
-    broadcastTyping();
+.auth-card h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-logo-header {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: white;
+  box-shadow: var(--shadow-xs);
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 0 0 24px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: var(--bg-subtle);
+  padding: 4px;
+  border-radius: var(--radius-md);
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.tab-btn:hover { background: transparent; color: var(--text); }
+
+.tab-btn.active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form > button[type="submit"] {
+  margin-top: 6px;
+}
+
+/* ---------- App shell ---------- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--header-bg);
+  color: var(--header-text);
+  padding: 14px 18px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.brand-btn {
+  background: transparent;
+  padding: 4px 6px 4px 2px;
+  border-radius: var(--radius-md);
+  text-align: left;
+  transition: background 0.15s var(--ease), transform 0.12s var(--ease);
+}
+.brand-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.brand-btn:active { transform: scale(0.98); }
+
+.topbar h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+.topbar-sub { font-size: 11.5px; color: var(--header-text-muted); margin: 1px 0 0; }
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  background: transparent;
+  padding: 8px;
+  font-size: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: var(--header-text);
+}
+
+.icon-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.icon-btn:active { transform: scale(0.92); }
+
+.who button.text-btn {
+  background: rgba(255, 255, 255, 0.12);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  color: var(--header-text);
+}
+.who button.text-btn:hover { background: rgba(255, 255, 255, 0.2); }
+
+.tabbar {
+  display: flex;
+  background: var(--bg-elevated);
+  position: sticky;
+  top: 62px;
+  z-index: 19;
+  padding: 6px 8px;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-btn {
+  flex: 1;
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 8px 4px 7px;
+  font-weight: 600;
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  position: relative;
+}
+
+.tab-badge {
+  position: absolute;
+  top: 2px;
+  right: calc(50% - 22px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  animation: gp-pop-in 0.2s var(--ease);
+  box-shadow: 0 0 0 2px var(--bg-elevated);
+}
+
+.page-btn-icon {
+  font-size: 19px;
+  line-height: 1;
+  filter: grayscale(0.65);
+  opacity: 0.7;
+  transition: filter 0.18s var(--ease), opacity 0.18s var(--ease), transform 0.18s var(--ease-spring);
+}
+
+.page-btn-label { letter-spacing: -0.01em; }
+
+.page-btn:hover { background: var(--bg-subtle); }
+
+.page-btn.active {
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+}
+
+.page-btn.active .page-btn-icon {
+  filter: grayscale(0);
+  opacity: 1;
+  transform: scale(1.08);
+}
+
+.page { display: none; }
+.page.active { display: block; animation: gp-fade-in 0.22s var(--ease); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.2s var(--ease);
+}
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.del-btn {
+  background: transparent;
+  color: var(--danger);
+  font-size: 11px;
+  padding: 5px 9px;
+  font-weight: 600;
+  margin-left: 6px;
+  border-radius: var(--radius-sm);
+}
+.del-btn:hover { background: var(--danger-soft); }
+
+.empty-state {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13.5px;
+  padding: 32px 8px;
+  animation: gp-fade-in 0.3s var(--ease);
+}
+
+.positive { color: var(--positive); font-weight: 700; }
+.negative { color: var(--danger); font-weight: 700; }
+
+/* ---------- Polls ---------- */
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.card-header-row h2 { margin: 0; }
+
+.poll-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.poll-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--bg-subtle);
+  animation: gp-fade-up 0.25s var(--ease);
+}
+
+.poll-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+
+.poll-card-author { font-weight: 700; }
+
+.poll-card-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--positive-soft);
+}
+.poll-closed .poll-card-status { background: var(--danger-soft); }
+
+.poll-card-question {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  margin-bottom: 10px;
+}
+
+.poll-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.poll-option {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  background: var(--card);
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.poll-option:hover { border-color: var(--accent); }
+.poll-option.my-vote { border-color: var(--accent); background: var(--accent-soft); }
+
+.poll-option-bar {
+  position: absolute;
+  inset: 0;
+  background: var(--accent-soft);
+  z-index: 0;
+  transition: width 0.4s var(--ease);
+}
+
+.poll-option-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.poll-option-pct { color: var(--muted); font-weight: 700; font-size: 12px; flex-shrink: 0; }
+
+.poll-card-footer {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.poll-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* ---------- Chat ---------- */
+.chat-card {
+  height: calc(100vh - 116px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 5%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-msg-row {
+  display: flex;
+  margin-bottom: 4px;
+  animation: gp-fade-up 0.2s var(--ease);
+  touch-action: pan-y;
+  position: relative;
+}
+.chat-msg-row.mine { justify-content: flex-end; }
+
+/* A small reply arrow fades in behind the bubble while swiping it right. */
+.chat-msg-row::before {
+  content: "↩";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%) scale(0.6);
+  font-size: 16px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease), transform 0.15s var(--ease);
+  pointer-events: none;
+}
+.chat-msg-row.swiping-reply::before { opacity: 1; transform: translateY(-50%) scale(1); }
+
+.chat-msg-row.flash-highlight .bubble {
+  animation: gp-flash-highlight 0.9s var(--ease);
+}
+@keyframes gp-flash-highlight {
+  0%, 100% { box-shadow: var(--shadow-xs); }
+  30% { box-shadow: 0 0 0 3px var(--accent-soft); }
+}
+
+.chat-msg {
+  max-width: 75%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.chat-msg.swipe-active .bubble { transition: none; }
+.chat-msg .bubble { transition: transform 0.2s var(--ease); }
+
+/* Hover-to-reply icon (desktop) — the swipe gesture handles touch. */
+.msg-reply-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+  box-shadow: var(--shadow-xs);
+}
+.chat-msg-row:not(.mine) .msg-reply-hint { right: -34px; }
+.chat-msg-row.mine .msg-reply-hint { left: -34px; }
+.chat-msg-row:hover .msg-reply-hint { opacity: 1; }
+.msg-reply-hint:hover { background: var(--bg-subtle-hover); color: var(--text); }
+
+.msg-react-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+  box-shadow: var(--shadow-xs);
+}
+.chat-msg-row:not(.mine) .msg-react-hint { right: -66px; }
+.chat-msg-row.mine .msg-react-hint { left: -66px; }
+.chat-msg-row:hover .msg-react-hint { opacity: 1; }
+.msg-react-hint:hover { background: var(--bg-subtle-hover); color: var(--text); }
+
+/* Floating quick-reaction picker, WhatsApp/iMessage-style */
+.react-picker-popup {
+  position: fixed;
+  display: flex;
+  gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 5px 7px;
+  box-shadow: var(--shadow-md);
+  z-index: 5;
+  animation: gp-pop-in 0.15s var(--ease);
+}
+.react-picker-popup button {
+  background: transparent;
+  padding: 3px 4px;
+  font-size: 18px;
+  border-radius: 50%;
+  transition: transform 0.12s var(--ease);
+}
+.react-picker-popup button:hover { transform: scale(1.25); background: transparent; }
+
+/* Reaction chips shown under a message bubble */
+.msg-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.msg-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.6;
+}
+.msg-reaction-chip.mine { background: var(--accent-soft); border-color: rgba(14, 165, 160, 0.3); }
+.msg-reaction-chip:hover { filter: brightness(0.97); }
+.msg-reaction-count { color: var(--muted); font-weight: 700; }
+
+/* Quoted "replying to" block shown inside a bubble */
+.msg-reply-quote {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: rgba(0, 0, 0, 0.05);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 5px;
+  cursor: pointer;
+}
+:root[data-theme="dark"] .msg-reply-quote { background: rgba(255, 255, 255, 0.06); }
+.msg-reply-quote-name { font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.msg-reply-quote-text {
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-msg .bubble {
+  background: var(--bubble-in);
+  color: var(--bubble-in-text);
+  padding: 8px 11px 9px 12px;
+  border-radius: 16px 16px 16px 4px;
+  box-shadow: var(--shadow-xs);
+  border: 1px solid var(--border);
+  position: relative;
+  word-wrap: break-word;
+}
+
+.chat-msg-row.mine .bubble {
+  background: var(--bubble-out);
+  color: var(--bubble-out-text);
+  border-color: transparent;
+  border-radius: 16px 16px 4px 16px;
+}
+
+.chat-msg .sender {
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.chat-msg .msg-text {
+  font-size: 14.5px;
+  line-height: 1.42;
+  white-space: pre-wrap;
+}
+
+.chat-msg .msg-time {
+  font-size: 10.5px;
+  color: var(--muted);
+  float: right;
+  margin: 4px -3px -2px 10px;
+  position: relative;
+  top: 3px;
+  opacity: 0.85;
+}
+
+/* ---------- Typing indicator (WhatsApp-style, mini avatars) ---------- */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  animation: gp-fade-up 0.18s var(--ease);
+}
+
+.typing-indicator-avatars {
+  display: flex;
+  align-items: center;
+}
+
+.typing-indicator-avatars .typing-avatar {
+  margin-left: -8px;
+  border: 2px solid var(--bg);
+}
+.typing-indicator-avatars .typing-avatar:first-child { margin-left: 0; }
+
+.typing-indicator-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-full);
+  padding: 7px 10px;
+}
+
+.typing-indicator-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  animation: gp-typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-indicator-dots span:nth-child(2) { animation-delay: 0.15s; }
+.typing-indicator-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes gp-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+
+/* ---------- Reply preview bar (above the chat input) ---------- */
+.chat-reply-preview {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  animation: gp-fade-up 0.15s var(--ease);
+}
+
+.chat-reply-preview-bar {
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.chat-reply-preview-body { flex: 1; min-width: 0; }
+.chat-reply-preview-name { font-size: 12px; font-weight: 700; color: var(--accent-dark); }
+.chat-reply-preview-text {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#chat-reply-cancel {
+  background: var(--bg-subtle);
+  color: var(--muted);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  align-self: center;
+  flex-shrink: 0;
+}
+#chat-reply-cancel:hover { background: var(--bg-subtle-hover); color: var(--text); }
+
+.chat-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+}
+
+.chat-form input {
+  flex: 1;
+  border-radius: var(--radius-full);
+  background: var(--bg-subtle);
+  border-color: transparent;
+  padding: 11px 17px;
+}
+
+.chat-form input:focus {
+  background: var(--input-bg-focus);
+  border-color: var(--accent);
+}
+
+.chat-form button.send-btn {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------- Feed ---------- */
+.feed-page-inner {
+  padding: 16px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.new-post-card textarea {
+  resize: vertical;
+  font-family: inherit;
+  min-height: 56px;
+  border-radius: var(--radius-md);
+}
+
+.new-post-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-subtle);
+  color: var(--text);
+  padding: 9px 15px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease);
+}
+
+.attach-btn:hover { background: var(--bg-subtle-hover); }
+
+.new-post-actions button[type="submit"] {
+  flex-shrink: 0;
+  padding: 10px 28px;
+  border-radius: var(--radius-full);
+}
+
+.post-media-preview {
+  position: relative;
+  margin-top: 12px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  max-height: 260px;
+  background: #000;
+}
+
+.post-media-preview img, .post-media-preview video {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+
+.remove-media-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  color: white;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 15px;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feed-list { display: flex; flex-direction: column; gap: 16px; }
+
+.post-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+  animation: gp-fade-up 0.3s var(--ease);
+  transition: box-shadow 0.2s var(--ease);
+}
+
+.post-card:hover { box-shadow: var(--shadow-sm); }
+
+.post-card-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 15px;
+}
+
+.post-card-header-name { font-weight: 700; font-size: 14px; letter-spacing: -0.01em; }
+.post-card-header-time { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.post-card-header-info { flex: 1; }
+
+.post-delete-btn {
+  background: transparent;
+  color: var(--muted);
+  padding: 6px;
+  font-size: 15px;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+}
+.post-delete-btn:hover { background: var(--danger-soft); color: var(--danger); }
+
+.post-card-caption {
+  padding: 0 15px 12px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.post-card-media { width: 100%; background: #000; max-height: 420px; display: block; overflow: hidden; position: relative; }
+.post-card-media img, .post-card-media video {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+
+.post-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.post-action-btn {
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 21px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1;
+  border-radius: var(--radius-full);
+  transition: transform 0.15s var(--ease-spring), background 0.15s var(--ease);
+}
+.post-action-btn:hover { background: var(--bg-subtle); }
+.post-action-btn:active { transform: scale(0.88); }
+.post-action-btn .count { font-size: 13px; font-weight: 600; color: var(--muted); }
+.post-action-btn.liked { color: var(--danger); }
+.post-action-btn.liked .count { color: var(--danger); }
+
+.post-card-comments {
+  padding: 2px 15px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.post-comment-row { font-size: 13.5px; line-height: 1.42; }
+.post-comment-row .comment-author { font-weight: 700; margin-right: 5px; }
+
+.post-comment-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 15px 15px;
+  border-top: 1px solid var(--border);
+}
+
+.post-comment-form input {
+  flex: 1;
+  padding: 9px 14px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  background: var(--bg-subtle);
+  border-color: transparent;
+}
+
+.post-comment-form button {
+  padding: 8px 18px;
+  font-size: 13px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+}
+
+/* ---------- Chat media ---------- */
+.attach-icon-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: background 0.15s var(--ease);
+}
+.attach-icon-btn:hover { background: var(--bg-subtle); }
+
+.chat-media-preview {
+  position: relative;
+  margin: 10px 12px 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  max-width: 220px;
+  background: #000;
+}
+
+.chat-media-preview img, .chat-media-preview video {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  display: block;
+}
+
+.chat-msg .msg-media {
+  display: block;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 5px;
+  max-width: 100%;
+}
+
+.chat-msg .msg-media img, .chat-msg .msg-media video {
+  width: 100%;
+  max-width: 260px;
+  max-height: 320px;
+  object-fit: cover;
+  display: block;
+  border-radius: 10px;
+}
+
+.chat-msg .msg-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 9px 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  color: inherit;
+  margin-bottom: 5px;
+}
+
+/* ---------- Call ---------- */
+#page-call { padding: 16px; max-width: 640px; margin: 0 auto; }
+
+#call-controls, #call-active-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+#call-controls button, #call-active-controls button {
+  border-radius: var(--radius-full);
+  padding: 10px 16px;
+  font-size: 13.5px;
+}
+
+.danger-btn { background: var(--danger); }
+.danger-btn:hover { background: #D6291F; }
+
+.call-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.call-tile {
+  position: relative;
+  background: #14201B;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  box-shadow: var(--shadow-sm);
+}
+
+.call-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.call-tile .call-tile-name {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  color: white;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+}
+
+/* ---------- Profile button (header) ---------- */
+#profile-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  transition: border-color 0.15s var(--ease), transform 0.15s var(--ease);
+}
+#profile-btn:hover { border-color: rgba(255, 255, 255, 0.55); }
+#profile-btn:active { transform: scale(0.94); }
+#profile-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#profile-btn .avatar { width: 100%; height: 100%; border-radius: 0; font-size: 14px; box-shadow: none; }
+
+.dark-icon-btn {
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+}
+
+/* ---------- Password fields & links ---------- */
+.password-field-wrap { position: relative; }
+.password-field-wrap input { padding-right: 46px; }
+
+.show-pass-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  padding: 7px 9px;
+  font-size: 15px;
+  width: auto;
+  color: var(--muted);
+}
+.show-pass-btn:hover { background: var(--bg-subtle); }
+
+.link-btn {
+  background: transparent;
+  color: var(--accent-dark);
+  padding: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+.link-btn:hover { background: transparent; text-decoration: underline; }
+
+.field-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 6px 0 -4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.full-width-btn { width: 100%; }
+
+/* ---------- Modals (profile, forgot password) ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+  animation: gp-fade-in 0.18s var(--ease);
+}
+
+@media (min-width: 560px) {
+  .modal-overlay { align-items: center; }
+}
+
+.modal-card {
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 0 0 24px;
+  box-shadow: var(--shadow-lg);
+  animation: gp-sheet-up 0.3s var(--ease-spring);
+}
+
+@media (min-width: 560px) {
+  .modal-card { border-radius: var(--radius-xl); animation: gp-pop-in 0.25s var(--ease-spring); }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px 10px;
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 1;
+}
+
+.modal-header h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+
+.modal-close-btn {
+  background: var(--bg-subtle);
+  color: var(--muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 14px;
+}
+.modal-close-btn:hover { background: var(--bg-subtle-hover); color: var(--text); }
+
+.modal-sub { color: var(--muted); font-size: 13px; margin: 0 0 4px; line-height: 1.4; }
+
+.modal-divider { height: 1px; background: var(--border); margin: 18px 22px; }
+
+.profile-modal-body { padding: 0 22px; display: flex; flex-direction: column; gap: 10px; }
+
+.profile-avatar-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0 8px;
+}
+
+.profile-avatar-preview {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+.profile-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar-preview .avatar { width: 88px; height: 88px; font-size: 30px; border-radius: 50%; }
+
+.dark-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14.5px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: var(--bg-subtle-hover);
+  border-radius: var(--radius-full);
+  transition: background-color 0.2s var(--ease);
+}
+.switch-slider::before {
+  content: "";
+  position: absolute;
+  height: 22px;
+  width: 22px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s var(--ease-spring);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.switch input:checked + .switch-slider { background-color: var(--accent); }
+.switch input:checked + .switch-slider::before { transform: translateX(20px); }
+
+/* ---------- Chat header + embedded call bar ---------- */
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--header-bg);
+  color: white;
+}
+
+.chat-header-info { display: flex; flex-direction: column; }
+.chat-header-title { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
+.chat-header-sub { font-size: 11.5px; color: rgba(255, 255, 255, 0.6); margin-top: 1px; }
+
+.call-bar {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  animation: gp-fade-up 0.2s var(--ease);
+}
+
+.call-bar-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.call-bar-status {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  flex: 1;
+  font-weight: 500;
+}
+
+.call-bar #call-controls, .call-bar #call-active-controls {
+  margin-top: 0;
+}
+
+.call-bar .call-grid { margin-top: 12px; }
+
+/* "Call started" system message, centered pill */
+.chat-call-system {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+  animation: gp-fade-in 0.2s var(--ease);
+}
+
+.chat-call-system-pill {
+  background: var(--bg-subtle);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 9px 15px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+}
+
+.chat-call-system-pill button {
+  padding: 6px 13px;
+  font-size: 12px;
+  border-radius: var(--radius-full);
+}
+
+/* ---------- Home tab ---------- */
+.home-page-inner {
+  padding: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.home-greeting-card {
+  background: var(--brand-gradient);
+  color: white;
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+  animation: gp-fade-up 0.25s var(--ease);
+}
+.home-greeting-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(180px 120px at 90% -30%, rgba(255, 255, 255, 0.3), transparent 60%);
+  pointer-events: none;
+}
+.home-greeting-line { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; position: relative; }
+.home-greeting-date { font-size: 12.5px; opacity: 0.88; margin-top: 3px; position: relative; }
+
+/* ---------- Members popup (tap the logo/house name) ---------- */
+.members-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s var(--ease);
+}
+.member-row:hover { background: var(--bg-subtle); }
+.member-row:last-child { border-bottom: none; }
+
+.member-row-info { flex: 1; min-width: 0; }
+.member-row-name { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
+.member-row-status { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+.avatar-presence-wrap { position: relative; flex-shrink: 0; display: inline-flex; }
+.presence-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  border: 2px solid var(--card);
+}
+.presence-dot.online { background: var(--positive); }
+
+/* ---------- Heart burst (double-tap to like a feed post) ---------- */
+.heart-burst {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 72px;
+  pointer-events: none;
+  animation: gp-heart-burst 0.8s var(--ease) forwards;
+}
+@keyframes gp-heart-burst {
+  0% { opacity: 0; transform: scale(0.4); }
+  25% { opacity: 1; transform: scale(1.15); }
+  40% { transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.05); }
+}
+
+/* ---------- Confetti burst (task completed) ---------- */
+.confetti-piece {
+  position: fixed;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 999;
+  animation: gp-confetti-fly 0.7s ease-out forwards;
+}
+@keyframes gp-confetti-fly {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(260deg) scale(0.6); }
+}
+
+/* ---------- Clickable name/avatar → opens a profile ---------- */
+.user-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.15s var(--ease);
+}
+.user-link:hover { opacity: 0.72; }
+
+.net-row .user-link { flex: 1; min-width: 0; }
+
+.sender[data-action="view-profile"] { cursor: pointer; }
+.sender[data-action="view-profile"]:hover { text-decoration: underline; }
+
+.post-card-header-clickable {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.15s var(--ease);
+}
+.post-card-header-clickable:hover { opacity: 0.8; }
+
+/* ---------- Tasks ---------- */
+.task-form-row {
+  display: flex;
+  gap: 10px;
+}
+.task-form-row select { flex: 1.3; }
+.task-form-row input[type="date"] { flex: 1; }
+
+.task-list { list-style: none; margin: 0; padding: 0; }
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s var(--ease);
+  animation: gp-fade-up 0.2s var(--ease);
+}
+.task-row:hover { background: var(--bg-subtle); }
+.task-row:last-child { border-bottom: none; }
+
+.task-checkbox {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: transparent;
+  color: white;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.12s var(--ease-spring);
+}
+.task-checkbox:hover { border-color: var(--accent); background: transparent; }
+.task-checkbox.checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.task-checkbox.checked:hover { background: var(--accent-dark); }
+
+.task-row-main { flex: 1; min-width: 0; }
+
+.task-row-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+
+.task-row.task-done .task-row-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.task-row-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.task-row-meta .mini-avatar { width: 18px; height: 18px; font-size: 9px; }
+
+/* ---------- Notifications ---------- */
+.notification-list { list-style: none; margin: 0; padding: 0; }
+
+.notification-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.notification-row:last-child { border-bottom: none; }
+.notification-row.unread { background: var(--accent-soft); border-radius: var(--radius-sm); }
+
+.notification-icon { font-size: 17px; flex-shrink: 0; line-height: 1.3; }
+.notification-row-main { flex: 1; min-width: 0; }
+.notification-text { font-size: 13.5px; line-height: 1.4; }
+.notification-time { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.notification-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+/* ---------- Profile modal: posts grid (Instagram-style) ---------- */
+.profile-posts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.profile-post-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--bg-subtle);
+  overflow: hidden;
+  cursor: default;
+}
+
+.profile-post-tile img, .profile-post-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.profile-post-tile-text {
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.profile-post-tile-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), transparent);
+  color: white;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 14px 6px 5px;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+.profile-post-tile:hover .profile-post-tile-overlay { opacity: 1; }
+
+/* ---------- Desktop / larger screens ---------- */
+@media (min-width: 720px) {
+  body { background: var(--bg); }
+
+  #app-screen {
+    max-width: 900px;
+    margin: 0 auto;
+    min-height: 100vh;
+    box-shadow: var(--shadow-lg);
+    background: var(--bg);
   }
+
+  .topbar, .tabbar, .chat-header, .call-bar { border-radius: 0; }
 }
 
-// ---------- Voice/video call room (WebRTC signaling only — no media passes through this server) ----------
-// Map of socket.id -> { userId, userName }, everyone currently in the shared call.
-const callParticipants = new Map();
-
-function leaveCall(socket) {
-  if (!callParticipants.has(socket.id)) return;
-  callParticipants.delete(socket.id);
-  socket.to('call-room').emit('call:peer-left', { socketId: socket.id });
-  socket.leave('call-room');
+@media (max-width: 480px) {
+  .auth-card { padding: 26px 22px; }
 }
-
-io.on('connection', (socket) => {
-  // `payload` is either a plain string (older/text-only clients) or
-  // { text, attachment: { url, name, mime, kind } } for messages with media.
-  socket.on('chat:send', (payload) => {
-    const isObject = payload && typeof payload === 'object';
-    const text = (isObject ? payload.text : payload) || '';
-    const attachment = isObject && payload.attachment && typeof payload.attachment.url === 'string'
-      ? {
-          url: payload.attachment.url,
-          name: typeof payload.attachment.name === 'string' ? payload.attachment.name.slice(0, 200) : '',
-          mime: typeof payload.attachment.mime === 'string' ? payload.attachment.mime : '',
-          kind: ['image', 'video', 'file'].includes(payload.attachment.kind) ? payload.attachment.kind : 'file',
-        }
-      : null;
-
-    const trimmedText = typeof text === 'string' ? text.trim() : '';
-    if (!trimmedText && !attachment) return; // nothing to send
-
-    // Sending a message implies they're done typing.
-    stopTyping(socket);
-
-    // Swipe-to-reply: snapshot the quoted message's text/sender at send time,
-    // so the quote still reads correctly even if the original is ever deleted.
-    let replyTo = null;
-    const replyToId = isObject && typeof payload.replyTo === 'string' ? payload.replyTo : null;
-    if (replyToId) {
-      const original = db.messages.find(m => m.id === replyToId);
-      if (original) {
-        replyTo = {
-          id: original.id,
-          userId: original.user_id,
-          userName: original.user_name,
-          text: original.text || '',
-          attachmentKind: original.attachment ? original.attachment.kind : null,
-        };
-      }
-    }
-
-    const message = {
-      id: uuid(),
-      user_id: socket.user.id,
-      user_name: socket.user.name,
-      text: trimmedText,
-      attachment,
-      reply_to: replyTo,
-      created_at: Date.now(),
-    };
-    db.messages.push(message);
-    save();
-    io.emit('chat:message', message);
-
-    sendPushToUsers({
-      excludeUserId: socket.user.id,
-      title: socket.user.name,
-      body: trimmedText || (attachment?.kind === 'image' ? '📷 Photo' : attachment?.kind === 'video' ? '🎥 Video' : '📎 Attachment'),
-      tag: 'gp-chat',
-    }).catch(() => {});
-  });
-
-  // A device asks to join the shared call room. We reply (via ack callback)
-  // with the list of people already in it, so the joiner can initiate a
-  // WebRTC connection to each of them.
-  socket.on('call:join', (_data, callback) => {
-    const wasEmpty = callParticipants.size === 0;
-    const existingPeers = [...callParticipants.entries()].map(([socketId, info]) => ({
-      socketId,
-      userName: info.userName,
-    }));
-
-    callParticipants.set(socket.id, { userId: socket.user.id, userName: socket.user.name });
-    socket.join('call-room');
-
-    if (typeof callback === 'function') callback({ peers: existingPeers });
-
-    socket.to('call-room').emit('call:peer-joined', {
-      socketId: socket.id,
-      userName: socket.user.name,
-    });
-
-    if (wasEmpty) {
-      // Drop a "call started" entry into the group chat thread itself, WhatsApp-style,
-      // so it's part of the permanent chat history and shows up even for people
-      // who open the app later instead of tapping the notification.
-      const callMessage = {
-        id: uuid(),
-        user_id: socket.user.id,
-        user_name: socket.user.name,
-        text: '',
-        attachment: null,
-        type: 'call-start',
-        created_at: Date.now(),
-      };
-      db.messages.push(callMessage);
-      save();
-      io.emit('chat:message', callMessage);
-
-      sendPushToUsers({
-        excludeUserId: socket.user.id,
-        title: `📞 ${socket.user.name} is calling Gujjar Penthouse`,
-        body: 'Join or decline the house call.',
-        tag: 'gp-call',
-        type: 'call-invite',
-        data: { callerName: socket.user.name },
-      }).catch(() => {});
-    }
-  });
-
-  // WhatsApp-style typing indicator. The client sends "start" on keystroke
-  // (throttled) and "stop" after a short pause or on send/blur.
-  socket.on('chat:typing-start', () => {
-    typingUsers.set(socket.id, { userId: socket.user.id, userName: socket.user.name, avatarUrl: socket.user.avatarUrl || null });
-    broadcastTyping();
-  });
-
-  socket.on('chat:typing-stop', () => stopTyping(socket));
-
-  socket.on('call:leave', () => leaveCall(socket));
-
-  // Pure relay: forward WebRTC offers/answers/ICE candidates to the intended peer only.
-  socket.on('call:offer', ({ to, offer }) => {
-    if (!to || !offer) return;
-    io.to(to).emit('call:offer', { from: socket.id, userName: socket.user.name, offer });
-  });
-
-  socket.on('call:answer', ({ to, answer }) => {
-    if (!to || !answer) return;
-    io.to(to).emit('call:answer', { from: socket.id, answer });
-  });
-
-  socket.on('call:ice-candidate', ({ to, candidate }) => {
-    if (!to || !candidate) return;
-    io.to(to).emit('call:ice-candidate', { from: socket.id, candidate });
-  });
-
-  socket.on('disconnect', () => {
-    leaveCall(socket);
-    stopTyping(socket);
-  });
-});
-
-server.listen(PORT, () => {
-  console.log(`Gujjar Penthouse app running on http://localhost:${PORT}`);
-});
