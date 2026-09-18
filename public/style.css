@@ -747,13 +747,88 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   display: flex;
   margin-bottom: 4px;
   animation: gp-fade-up 0.2s var(--ease);
+  touch-action: pan-y;
+  position: relative;
 }
 .chat-msg-row.mine { justify-content: flex-end; }
+
+/* A small reply arrow fades in behind the bubble while swiping it right. */
+.chat-msg-row::before {
+  content: "↩";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%) scale(0.6);
+  font-size: 16px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease), transform 0.15s var(--ease);
+  pointer-events: none;
+}
+.chat-msg-row.swiping-reply::before { opacity: 1; transform: translateY(-50%) scale(1); }
+
+.chat-msg-row.flash-highlight .bubble {
+  animation: gp-flash-highlight 0.9s var(--ease);
+}
+@keyframes gp-flash-highlight {
+  0%, 100% { box-shadow: var(--shadow-xs); }
+  30% { box-shadow: 0 0 0 3px var(--accent-soft); }
+}
 
 .chat-msg {
   max-width: 75%;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.chat-msg.swipe-active .bubble { transition: none; }
+.chat-msg .bubble { transition: transform 0.2s var(--ease); }
+
+/* Hover-to-reply icon (desktop) — the swipe gesture handles touch. */
+.msg-reply-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+  box-shadow: var(--shadow-xs);
+}
+.chat-msg-row:not(.mine) .msg-reply-hint { right: -34px; }
+.chat-msg-row.mine .msg-reply-hint { left: -34px; }
+.chat-msg-row:hover .msg-reply-hint { opacity: 1; }
+.msg-reply-hint:hover { background: var(--bg-subtle-hover); color: var(--text); }
+
+/* Quoted "replying to" block shown inside a bubble */
+.msg-reply-quote {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: rgba(0, 0, 0, 0.05);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 5px;
+  cursor: pointer;
+}
+:root[data-theme="dark"] .msg-reply-quote { background: rgba(255, 255, 255, 0.06); }
+.msg-reply-quote-name { font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.msg-reply-quote-text {
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-msg .bubble {
@@ -795,6 +870,47 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   top: 3px;
   opacity: 0.85;
 }
+
+/* ---------- Reply preview bar (above the chat input) ---------- */
+.chat-reply-preview {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  animation: gp-fade-up 0.15s var(--ease);
+}
+
+.chat-reply-preview-bar {
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.chat-reply-preview-body { flex: 1; min-width: 0; }
+.chat-reply-preview-name { font-size: 12px; font-weight: 700; color: var(--accent-dark); }
+.chat-reply-preview-text {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#chat-reply-cancel {
+  background: var(--bg-subtle);
+  color: var(--muted);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  align-self: center;
+  flex-shrink: 0;
+}
+#chat-reply-cancel:hover { background: var(--bg-subtle-hover); color: var(--text); }
 
 .chat-form {
   display: flex;
