@@ -41,14 +41,27 @@ window.addEventListener('appinstalled', () => {
 });
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  // A hard timeout so a slow/stuck server request can never leave a button
+  // disabled forever with no feedback — it'll show a real error instead.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('That took too long. Please check your connection and try again.');
+    throw new Error('Could not reach the server. Please check your connection and try again.');
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Something went wrong.');
   return data;
@@ -490,7 +503,7 @@ function userName(id) {
 }
 
 // ---------- Avatars ----------
-const AVATAR_COLORS = ['#ee6c4d', '#f4a259', '#5b8c5a', '#457b9d', '#7b6cbd', '#e07a9e', '#2a9d8f', '#e9924a'];
+const AVATAR_COLORS = ['#FF6B6B', '#FFA94D', '#4ECDC4', '#5B8DEF', '#8E7CFF', '#FF7EB6', '#38C793', '#FFB84D'];
 
 function colorForName(name) {
   let hash = 0;
