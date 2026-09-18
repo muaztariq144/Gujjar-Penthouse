@@ -310,6 +310,8 @@ async function startApp() {
   renderHomeGreeting();
   renderEventBanner();
   renderEventDancer();
+  syncHeaderHeight();
+  initChatCat();
 
   await loadUsers();
   await loadMessages();
@@ -326,6 +328,86 @@ async function startApp() {
   setupPollModal();
   setupTypingIndicator();
   setupMembersPopup();
+}
+
+// ---------- Keep the chat page's height in sync with the real header ----------
+// The topbar can grow taller than its normal size while the wedding dancers
+// (and their speech bubble) are showing, so the chat page's height can't be
+// a hardcoded number — measure the actual header + tabbar height instead.
+function syncHeaderHeight() {
+  const topbar = document.querySelector('.topbar');
+  const tabbar = document.querySelector('.tabbar');
+  if (!topbar || !tabbar) return;
+  const h = topbar.getBoundingClientRect().height + tabbar.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--header-tabbar-h', `${Math.round(h)}px`);
+}
+window.addEventListener('resize', syncHeaderHeight);
+window.addEventListener('load', syncHeaderHeight);
+
+// ---------- Chat kitten (a tiny wandering orange cat, purely for fun) ----------
+let catTimer = null;
+let catX = 8;
+const CAT_STATES = ['cat-walking', 'cat-sit', 'cat-sleep', 'cat-clean', 'cat-meow', 'cat-dance'];
+
+function setCatState(state) {
+  const cat = $('#chat-cat');
+  if (!cat) return;
+  CAT_STATES.forEach((s) => cat.classList.remove(s));
+  cat.classList.add(state);
+}
+
+function moveCatTo(x) {
+  const cat = $('#chat-cat');
+  if (!cat) return;
+  cat.style.setProperty('--cat-x', `${x}px`);
+}
+
+function scheduleNextCatBehavior() {
+  clearTimeout(catTimer);
+  const cat = $('#chat-cat');
+  if (!cat) return;
+
+  // Weighted so it walks around most of the time, with occasional rest stops.
+  const choices = ['walk', 'walk', 'walk', 'sit', 'sleep', 'clean'];
+  const next = choices[Math.floor(Math.random() * choices.length)];
+
+  if (next === 'walk') {
+    const card = cat.closest('.chat-card');
+    const maxX = card ? Math.max(20, card.clientWidth - 60) : 220;
+    const target = Math.round(Math.random() * maxX);
+    cat.classList.toggle('facing-left', target < catX);
+    catX = target;
+    setCatState('cat-walking');
+    moveCatTo(target);
+    catTimer = setTimeout(scheduleNextCatBehavior, 2600 + Math.random() * 2200);
+  } else if (next === 'sit') {
+    setCatState('cat-sit');
+    catTimer = setTimeout(scheduleNextCatBehavior, 2200 + Math.random() * 1800);
+  } else if (next === 'sleep') {
+    setCatState('cat-sleep');
+    catTimer = setTimeout(scheduleNextCatBehavior, 7000 + Math.random() * 5000);
+  } else if (next === 'clean') {
+    setCatState('cat-clean');
+    catTimer = setTimeout(scheduleNextCatBehavior, 2800 + Math.random() * 1600);
+  }
+}
+
+function initChatCat() {
+  if (initChatCat._started) return;
+  initChatCat._started = true;
+  moveCatTo(catX);
+  scheduleNextCatBehavior();
+}
+
+// Give the kitten a little reaction whenever a chat message comes in —
+// meowing at it or breaking into a quick dance — then back to normal.
+function catReactToMessage() {
+  const cat = $('#chat-cat');
+  if (!cat || !initChatCat._started) return;
+  clearTimeout(catTimer);
+  const reaction = Math.random() < 0.5 ? 'cat-meow' : 'cat-dance';
+  setCatState(reaction);
+  catTimer = setTimeout(scheduleNextCatBehavior, 1700);
 }
 
 // ---------- Home greeting (a little personal touch each time you open the app) ----------
@@ -1560,6 +1642,7 @@ function connectSocket() {
     box.insertAdjacentHTML('beforeend', renderMessage(m));
     box.scrollTop = box.scrollHeight;
     renderSeenReceipts();
+    catReactToMessage();
     if (m.user_id !== me?.id) {
       bumpTabBadge('chat');
       if (currentPage === 'chat') { haptic('light'); markLatestMessageRead(); }
