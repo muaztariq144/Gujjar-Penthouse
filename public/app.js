@@ -9,7 +9,9 @@ let pollsCache = [];
 let onlineUserIds = new Set();
 let chatViewerIds = new Set();
 let chatReads = {}; // userId -> messageId (their last-read message)
-let currentPage = 'home';
+let currentPage = 'feed';
+let pageBeforeNotifications = 'feed';
+let unreadNotifCount = 0;
 let unreadCounts = { feed: 0, chat: 0, home: 0 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -256,15 +258,31 @@ function onLoggedIn(data) {
 }
 
 // ---------- Page navigation ----------
+// "Sub-pages" are reached from the header (notifications) or a bottom-nav
+// avatar (profile) rather than a .page-btn tab, so they're not part of the
+// 4-tab bottom bar but still use the same show/hide machinery.
+const SUB_PAGES = new Set(['notifications', 'profile']);
+
 function switchToPage(page) {
   const wasChatPage = currentPage === 'chat';
+  if (!SUB_PAGES.has(page)) {
+    // Only remember a "real" tab as the place to return to from a sub-page.
+    pageBeforeNotifications = page;
+  }
   $$('.page-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));
+  $('#nav-profile-btn')?.classList.toggle('active', page === 'profile');
   currentPage = page;
   haptic('light');
-  // Notifications are marked "seen" server-side the moment they're fetched,
-  // so re-fetch each time someone actually opens Home to see fresh ones.
-  if (page === 'home' && me) loadNotifications().catch(() => {});
+
+  if (page === 'notifications' && me) {
+    // Notifications are marked "seen" server-side the moment they're
+    // fetched, so re-fetch each time someone actually opens this screen.
+    loadNotifications().catch(() => {});
+    unreadNotifCount = 0;
+    setHeaderNotifBadge(0);
+  }
+  if (page === 'profile' && me) populateProfilePage();
   clearTabBadge(page);
 
   // Let roommates see who's actually looking at the chat right now.
@@ -281,21 +299,14 @@ $$('.page-btn').forEach((btn) => {
   btn.addEventListener('click', () => switchToPage(btn.dataset.page));
 });
 
-// Bottom-nav "+" — Instagram's compose entry point: jump to Feed and drop
-// the cursor straight into the composer.
-$('#nav-add-btn')?.addEventListener('click', () => {
-  switchToPage('feed');
-  requestAnimationFrame(() => {
-    $('#new-post-card')?.classList.add('expanded');
-    $('#post-caption')?.focus();
-  });
-});
+// Header bell — Instagram-style Activity screen: its own page, reachable
+// from any tab, with a badge for unseen notifications.
+$('#header-notif-btn')?.addEventListener('click', () => switchToPage('notifications'));
+$('#notifications-back-btn')?.addEventListener('click', () => switchToPage(pageBeforeNotifications || 'feed'));
 
-// Bottom-nav profile avatar — same profile modal as the header button.
-$('#nav-profile-btn')?.addEventListener('click', () => {
-  haptic('light');
-  $('#profile-btn')?.click();
-});
+// Bottom-nav profile avatar — opens the profile as a full page instead of a
+// modal, so there's never an awkward "how do I close this" moment.
+$('#nav-profile-btn')?.addEventListener('click', () => switchToPage('profile'));
 
 function setTabBadge(tab, count) {
   const badge = $(`#badge-${tab}`);
@@ -656,12 +667,6 @@ function setupMembersPopup() {
 }
 
 function renderProfileButton() {
-  const btn = $('#profile-btn');
-  if (btn && me) {
-    btn.innerHTML = avatarOrInitials(me.id, me.name, '', 32);
-    btn.title = me.name;
-    btn.classList.remove('hidden');
-  }
   const navBtn = $('#nav-profile-btn');
   if (navBtn && me) {
     navBtn.innerHTML = avatarOrInitials(me.id, me.name, '', 26);
@@ -669,7 +674,7 @@ function renderProfileButton() {
   }
 }
 
-// ---------- Profile modal (view/edit profile, avatar, dark mode, password) ----------
+// ---------- Profile page (view/edit profile, avatar, dark mode, password) ----------
 function applyDarkModePreference() {
   const saved = localStorage.getItem('gp_theme');
   const isDark = saved === 'dark';
@@ -678,25 +683,23 @@ function applyDarkModePreference() {
   if (toggle) toggle.checked = isDark;
 }
 
-function setupProfileModal() {
-  const profileBtn = $('#profile-btn');
-  if (profileBtn && !profileBtn.dataset.wired) {
-    profileBtn.dataset.wired = '1';
-    profileBtn.addEventListener('click', () => {
-      $('#profile-name-input').value = me.name;
-      $('#profile-email-input').value = me.email || '';
-      $('#profile-avatar-preview').innerHTML = avatarOrInitials(me.id, me.name, '', 84);
-      $('#profile-save-error').textContent = '';
-      $('#profile-save-success').classList.add('hidden');
-      $('#change-password-error').textContent = '';
-      $('#change-password-success').classList.add('hidden');
-      $('#current-password-input').value = '';
-      $('#new-password-input').value = '';
-      applyDarkModePreference();
-      openModal('profile-modal');
-    });
-  }
+// Fills the profile page's fields with the current user's data — called
+// every time the page is navigated to, same as any other tab's refresh.
+function populateProfilePage() {
+  if (!me) return;
+  $('#profile-name-input').value = me.name;
+  $('#profile-email-input').value = me.email || '';
+  $('#profile-avatar-preview').innerHTML = avatarOrInitials(me.id, me.name, '', 84);
+  $('#profile-save-error').textContent = '';
+  $('#profile-save-success').classList.add('hidden');
+  $('#change-password-error').textContent = '';
+  $('#change-password-success').classList.add('hidden');
+  $('#current-password-input').value = '';
+  $('#new-password-input').value = '';
+  applyDarkModePreference();
+}
 
+function setupProfileModal() {
   const avatarInput = $('#profile-avatar-input');
   if (avatarInput && !avatarInput.dataset.wired) {
     avatarInput.dataset.wired = '1';
@@ -1242,23 +1245,27 @@ async function handleTaskListClick(e) {
 $('#home-tasks-list')?.addEventListener('click', handleTaskListClick);
 $('#all-tasks-list')?.addEventListener('click', handleTaskListClick);
 
-// ---------- In-app notifications feed (Home tab) ----------
+// ---------- In-app notifications feed (Instagram-style Activity screen) ----------
+// Each notification type gets its own colored icon bubble, standing in for
+// the "who did this" avatar Instagram would show (our notifications don't
+// carry a specific actor), so the feed still reads as a scannable pile
+// rather than a flat list.
 function notificationIcon(type) {
-  if (type === 'task') return '✅';
-  if (type === 'poll') return '🗳️';
-  if (type === 'like') return '❤️';
-  if (type === 'comment') return '💬';
-  if (type === 'post') return '📸';
-  return '🔔';
+  if (type === 'task') return ICONS.plusSquare;
+  if (type === 'poll') return ICONS.explore;
+  if (type === 'like') return ICONS.heartActive;
+  if (type === 'comment') return ICONS.comment;
+  if (type === 'post') return ICONS.camera;
+  return ICONS.plusSquare;
 }
 
 function renderNotifications(list) {
-  const box = $('#home-notifications-list');
+  const box = $('#notifications-page-list');
   if (!box) return;
   box.innerHTML = list.length === 0
     ? '<li class="empty-state">No notifications yet.</li>'
     : list.map(n => `
-      <li class="notification-row ${n.read ? '' : 'unread'}">
+      <li class="notification-row notification-row-${n.type} ${n.read ? '' : 'unread'}">
         <span class="notification-icon">${notificationIcon(n.type)}</span>
         <div class="notification-row-main">
           <div class="notification-text">${escapeHtml(n.text)}</div>
@@ -1267,6 +1274,19 @@ function renderNotifications(list) {
         ${n.read ? '' : '<span class="notification-dot"></span>'}
       </li>
     `).join('');
+}
+
+// Small numbered badge on the header bell — capped at 9+, like a typical
+// Instagram-style activity indicator.
+function setHeaderNotifBadge(count) {
+  const badge = $('#header-notif-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count > 9 ? '9+' : String(count);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
 }
 
 async function loadNotifications() {
@@ -1279,9 +1299,9 @@ async function loadNotifications() {
 async function openUserProfile(userId) {
   if (!userId) return;
   if (userId === me?.id) {
-    // Viewing yourself opens the same modal as the header avatar, where you
-    // can actually make changes — editing only ever applies to your own profile.
-    $('#profile-btn')?.click();
+    // Viewing yourself opens the same editable page as the bottom-nav
+    // avatar — editing only ever applies to your own profile.
+    switchToPage('profile');
     return;
   }
 
@@ -1864,7 +1884,10 @@ function connectSocket() {
     if (userId !== me?.id) return;
     notificationsCache.unshift(notification);
     renderNotifications(notificationsCache);
-    bumpTabBadge('home');
+    if (currentPage !== 'notifications') {
+      unreadNotifCount += 1;
+      setHeaderNotifBadge(unreadNotifCount);
+    }
   });
 
   // ---------- Tasks ----------
@@ -2100,14 +2123,19 @@ function renderStoriesRow() {
   `;
 }
 
+// Expands the composer and focuses it — used by "Your story" and anywhere
+// else that should drop the user straight into writing a post.
+function focusComposer() {
+  $('#new-post-card')?.classList.add('expanded');
+  $('#post-caption')?.focus();
+}
+
 function setupStoriesRow() {
   const row = $('#stories-row');
   if (!row || row.dataset.wired) return;
   row.dataset.wired = '1';
   row.addEventListener('click', (e) => {
-    if (e.target.closest('#story-item-you')) {
-      $('#nav-add-btn')?.click();
-    }
+    if (e.target.closest('#story-item-you')) focusComposer();
   });
 }
 
