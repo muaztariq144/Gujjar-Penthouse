@@ -767,44 +767,43 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .page-btn.active .tab-icon-outline { display: none; }
 .page-btn.active .tab-icon-filled { display: inline-flex; }
 
-.tab-add-btn, .tab-profile-btn {
+.tab-profile-btn {
   flex: 1;
   background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 4px;
+  padding: 6px 4px;
   color: var(--header-text-muted);
-  transition: transform 0.12s var(--ease-spring), border-color 0.15s var(--ease);
+  transition: transform 0.12s var(--ease-spring);
+  border-radius: 50%;
 }
-.tab-add-btn svg { width: 26px; height: 26px; display: block; }
-.tab-add-btn:hover, .tab-add-btn:focus-visible,
 .tab-profile-btn:hover, .tab-profile-btn:focus-visible {
   color: var(--header-text);
   background: transparent;
   box-shadow: none;
   transform: none;
 }
-.tab-add-btn:active, .tab-profile-btn:active { transform: scale(0.88); }
-
-.tab-profile-btn {
-  padding: 6px;
-  border-radius: 50%;
-}
+.tab-profile-btn:active { transform: scale(0.88); }
 .tab-profile-btn .avatar {
   width: 26px;
   height: 26px;
   border-radius: 50%;
   border: 1.5px solid var(--border-strong);
+  transition: border-color 0.15s var(--ease);
 }
 .tab-profile-btn:hover .avatar { border-color: var(--accent); }
+.tab-profile-btn.active .avatar {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.3);
+}
 
 .page { display: none; }
 .page.active { display: block; animation: gp-fade-in 0.22s var(--ease); }
 
 /* Room for the fixed bottom nav so the last card in any page is never
    hidden behind it. */
-#page-home, #page-feed { padding-bottom: 78px; }
+#page-home, #page-feed, #page-notifications, #page-profile { padding-bottom: 78px; }
 .chat-card { padding-bottom: 0; }
 #page-chat { padding-bottom: 0; }
 
@@ -2395,31 +2394,97 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .task-row-meta .mini-avatar { width: 18px; height: 18px; font-size: 9px; }
 
-/* ---------- Notifications ---------- */
+/* ---------- Sub-pages (Notifications, Profile) — reached from the header
+   or the bottom-nav avatar rather than a bottom tab, but rendered as a full
+   page like any other so there's never a modal to fight with closing. ---------- */
+.subpage-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 10px;
+}
+.subpage-header h2 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -0.015em; }
+.subpage-back-btn {
+  background: transparent;
+  color: var(--text);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.subpage-back-btn:hover { background: var(--bg-subtle); }
+
+#page-profile .profile-modal-body { padding: 4px 22px 24px; max-width: 480px; margin: 0 auto; }
+
+/* ---------- Header notification bell + badge ---------- */
+.header-notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--header-bg);
+  animation: gp-pop-in 0.2s var(--ease);
+}
+#header-notif-btn { position: relative; }
+
+/* ---------- Notifications (Instagram-style Activity feed) ---------- */
 .notification-list { list-style: none; margin: 0; padding: 0; }
+.notification-list-page { padding: 4px 12px 24px; }
 
 .notification-row {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding: 11px 4px;
-  border-bottom: 1px solid var(--border);
+  gap: 13px;
+  padding: 11px 8px;
+  border-radius: var(--radius-md);
 }
-.notification-row:last-child { border-bottom: none; }
-.notification-row.unread { background: var(--accent-soft); border-radius: var(--radius-sm); }
+.notification-row.unread { background: var(--accent-soft); }
 
-.notification-icon { font-size: 17px; flex-shrink: 0; line-height: 1.3; }
-.notification-row-main { flex: 1; min-width: 0; }
+.notification-icon {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  background: var(--muted-2);
+}
+.notification-icon svg { width: 19px; height: 19px; }
+
+.notification-row-like .notification-icon { background: linear-gradient(135deg, #FB4B6E, #FF7EB6); }
+.notification-row-comment .notification-icon { background: linear-gradient(135deg, var(--accent), var(--highlight)); }
+.notification-row-task .notification-icon { background: linear-gradient(135deg, var(--positive), var(--highlight)); }
+.notification-row-poll .notification-icon { background: var(--brand-gradient); }
+.notification-row-post .notification-icon { background: linear-gradient(135deg, var(--accent2), var(--accent)); }
+
+.notification-row-main { flex: 1; min-width: 0; padding-top: 3px; }
 .notification-text { font-size: 13.5px; line-height: 1.4; }
-.notification-time { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.notification-time { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 .notification-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--highlight);
   box-shadow: 0 0 6px rgba(var(--highlight-rgb), 0.7);
   flex-shrink: 0;
-  margin-top: 5px;
+  margin-top: 8px;
 }
 
 /* ---------- Profile modal: posts grid (Instagram-style) ---------- */
