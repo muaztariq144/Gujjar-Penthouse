@@ -8,44 +8,59 @@
 
 :root {
   /* ---- Brand / accent ----
-     A warmer, more energetic palette than a typical utility app: a
-     magenta-pink accent (the color of "like" buttons everywhere) plus a
-     sunset brand gradient, tuned to feel lively without turning garish. */
-  --accent: #E1306C;
-  --accent-dark: #B01A54;
-  --accent-soft: rgba(225, 48, 108, 0.12);
+     Premium, futuristic, "addictive" palette: an electric blue primary
+     action color, a vibrant purple secondary accent, and a cyan highlight
+     reserved for interactive/active/progress moments. The interface stays
+     mostly dark and neutral — these three only show up where they earn
+     attention. */
+  --accent: #5B5CFF;
+  --accent-rgb: 91, 92, 255;
+  --accent-dark: #4547DB;
+  --accent-soft: rgba(91, 92, 255, 0.14);
   --accent-contrast: #ffffff;
-  --accent-glow: rgba(225, 48, 108, 0.35);
-  --brand-gradient: linear-gradient(135deg, #7B2FF7 0%, #E1306C 55%, #FF8A3D 100%);
+  --accent-glow: rgba(91, 92, 255, 0.45);
+
+  --accent2: #A855F7;
+  --accent2-rgb: 168, 85, 247;
+  --accent2-soft: rgba(168, 85, 247, 0.14);
+
+  --highlight: #22D3EE;
+  --highlight-rgb: 34, 211, 238;
+  --highlight-soft: rgba(34, 211, 238, 0.14);
+
+  --brand-gradient: linear-gradient(135deg, #5B5CFF 0%, #A855F7 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(91, 92, 255, 0.16) 0%, rgba(168, 85, 247, 0.16) 100%);
 
   /* ---- Semantic ---- */
-  --positive: #17C787;
-  --positive-soft: rgba(23, 199, 135, 0.13);
-  --danger: #FF3B5C;
-  --danger-soft: rgba(255, 59, 92, 0.1);
+  --positive: #34D399;
+  --positive-rgb: 52, 211, 153;
+  --positive-soft: rgba(52, 211, 153, 0.14);
+  --danger: #FB4B6E;
+  --danger-rgb: 251, 75, 110;
+  --danger-soft: rgba(251, 75, 110, 0.14);
 
-  /* ---- Neutrals (light) ---- */
-  --bg: #F5F5F7;
-  --bg-elevated: #FFFFFF;
-  --bg-subtle: #F0F0F2;
-  --bg-subtle-hover: #E8E8EB;
-  --card: #FFFFFF;
-  --text: #1D1D1F;
-  --muted: #6E6E73;
-  --muted-2: #A0A0A5;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --input-bg: #F5F5F7;
-  --input-bg-focus: #FFFFFF;
-  --modal-overlay: rgba(20, 20, 22, 0.45);
-  --header-bg: #16161A;
-  --header-text: rgba(255, 255, 255, 0.92);
-  --header-text-muted: rgba(255, 255, 255, 0.6);
+  /* ---- Neutrals (dark, premium) ---- */
+  --bg: #0B0B0F;
+  --bg-elevated: #1B1B24;
+  --bg-subtle: #1A1A22;
+  --bg-subtle-hover: #232330;
+  --card: #15151C;
+  --text: #F8FAFC;
+  --muted: #94A3B8;
+  --muted-2: #64748B;
+  --border: rgba(248, 250, 252, 0.08);
+  --border-strong: rgba(248, 250, 252, 0.15);
+  --input-bg: #15151C;
+  --input-bg-focus: #1B1B24;
+  --modal-overlay: rgba(4, 4, 8, 0.72);
+  --header-bg: #0D0D13;
+  --header-text: #F8FAFC;
+  --header-text-muted: #94A3B8;
 
-  --bubble-out: #FDE1EB;
-  --bubble-out-text: #7A1140;
-  --bubble-in: #FFFFFF;
-  --bubble-in-text: #1D1D1F;
+  --bubble-out: linear-gradient(135deg, #2A2B63 0%, #3B2E66 100%);
+  --bubble-out-text: #F1F0FF;
+  --bubble-in: #1B1B24;
+  --bubble-in-text: #F8FAFC;
 
   /* ---- Scale ---- */
   --radius-sm: 10px;
@@ -54,10 +69,16 @@
   --radius-xl: 26px;
   --radius-full: 999px;
 
-  --shadow-xs: 0 1px 2px rgba(20, 20, 22, 0.04);
-  --shadow-sm: 0 2px 8px rgba(20, 20, 22, 0.06), 0 1px 2px rgba(20, 20, 22, 0.04);
-  --shadow-md: 0 8px 24px rgba(20, 20, 22, 0.10), 0 2px 6px rgba(20, 20, 22, 0.06);
-  --shadow-lg: 0 20px 48px rgba(20, 20, 22, 0.20), 0 4px 12px rgba(20, 20, 22, 0.08);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 26px 64px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35);
+
+  /* Soft colored glows for featured / interactive elements — used
+     sparingly, never as a default shadow. */
+  --glow-accent: 0 6px 20px rgba(91, 92, 255, 0.35);
+  --glow-accent-lg: 0 10px 32px rgba(91, 92, 255, 0.4), 0 2px 10px rgba(168, 85, 247, 0.25);
+  --focus-ring: 0 0 0 4px rgba(34, 211, 238, 0.22);
 
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
@@ -67,44 +88,61 @@
   text-rendering: optimizeLegibility;
 }
 
-/* ---------- Dark mode ---------- */
+/* ---------- Dark mode toggle ----------
+   The base theme above is already the premium dark palette. Switching
+   "dark mode" on deepens it further into a true-black, OLED-friendly
+   variant, so the toggle still does something meaningful without ever
+   leaving the same design language. */
 :root[data-theme="dark"] {
-  --accent: #FF5C93;
-  --accent-dark: #FF85B3;
-  --accent-soft: rgba(255, 92, 147, 0.18);
-  --accent-glow: rgba(255, 92, 147, 0.4);
+  --accent: #6C6DFF;
+  --accent-dark: #5354E8;
+  --accent-soft: rgba(108, 109, 255, 0.18);
+  --accent-glow: rgba(108, 109, 255, 0.5);
 
-  --positive: #2FE9A4;
-  --positive-soft: rgba(47, 233, 164, 0.15);
-  --danger: #FF6B87;
-  --danger-soft: rgba(255, 107, 135, 0.16);
+  --accent2: #B968FA;
+  --accent2-soft: rgba(185, 104, 250, 0.18);
+
+  --highlight: #3EE0F5;
+  --highlight-soft: rgba(62, 224, 245, 0.18);
+
+  --brand-gradient: linear-gradient(135deg, #6C6DFF 0%, #B968FA 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(108, 109, 255, 0.2) 0%, rgba(185, 104, 250, 0.2) 100%);
+
+  --positive: #3EEBAA;
+  --positive-soft: rgba(62, 235, 170, 0.16);
+  --danger: #FF6685;
+  --danger-soft: rgba(255, 102, 133, 0.18);
 
   --bg: #000000;
-  --bg-elevated: #1C1C1E;
-  --bg-subtle: #242426;
-  --bg-subtle-hover: #2C2C2E;
-  --card: #1C1C1E;
-  --text: #F5F5F7;
-  --muted: #98989D;
-  --muted-2: #6E6E73;
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --input-bg: #242426;
-  --input-bg-focus: #2C2C2E;
-  --modal-overlay: rgba(0, 0, 0, 0.65);
-  --header-bg: #0A0A0B;
-  --header-text: rgba(255, 255, 255, 0.94);
-  --header-text-muted: rgba(255, 255, 255, 0.55);
+  --bg-elevated: #131318;
+  --bg-subtle: #17171D;
+  --bg-subtle-hover: #1F1F27;
+  --card: #101014;
+  --text: #F8FAFC;
+  --muted: #98A2B3;
+  --muted-2: #5E6675;
+  --border: rgba(248, 250, 252, 0.09);
+  --border-strong: rgba(248, 250, 252, 0.16);
+  --input-bg: #131318;
+  --input-bg-focus: #1B1B22;
+  --modal-overlay: rgba(0, 0, 0, 0.8);
+  --header-bg: #000000;
+  --header-text: #F8FAFC;
+  --header-text-muted: #8A93A3;
 
-  --bubble-out: #4A1230;
-  --bubble-out-text: #FFDCEA;
-  --bubble-in: #242426;
-  --bubble-in-text: #F5F5F7;
+  --bubble-out: linear-gradient(135deg, #26275C 0%, #35275E 100%);
+  --bubble-out-text: #F1F0FF;
+  --bubble-in: #17171D;
+  --bubble-in-text: #F8FAFC;
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 28px 64px rgba(0, 0, 0, 0.7);
+
+  --glow-accent: 0 6px 22px rgba(108, 109, 255, 0.4);
+  --glow-accent-lg: 0 10px 34px rgba(108, 109, 255, 0.45), 0 2px 12px rgba(185, 104, 250, 0.3);
+  --focus-ring: 0 0 0 4px rgba(62, 224, 245, 0.25);
 }
 
 :root[data-theme="dark"] .split-list label,
@@ -371,14 +409,18 @@ html { background: var(--bg); }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(var(--accent-rgb), 0.10), transparent 60%),
+    radial-gradient(760px 520px at 100% 0%, rgba(var(--accent2-rgb), 0.08), transparent 55%),
+    var(--bg);
   color: var(--text);
   font-size: 15px;
   line-height: 1.45;
+  letter-spacing: -0.005em;
   transition: background 0.25s var(--ease), color 0.25s var(--ease);
 }
 
-h1, h2, h3 { font-family: inherit; letter-spacing: -0.01em; }
+h1, h2, h3 { font-family: inherit; letter-spacing: -0.015em; font-weight: 750; }
 
 .hidden { display: none !important; }
 
@@ -448,9 +490,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 
 input:focus, textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--highlight);
   background: var(--input-bg-focus);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  box-shadow: var(--focus-ring);
 }
 
 button {
@@ -464,14 +506,14 @@ button {
   font-weight: 600;
   font-family: inherit;
   letter-spacing: -0.01em;
-  transition: background 0.15s var(--ease), transform 0.12s var(--ease), box-shadow 0.15s var(--ease), opacity 0.15s var(--ease);
+  transition: background 0.15s var(--ease), transform 0.12s var(--ease-spring), box-shadow 0.15s var(--ease), opacity 0.15s var(--ease);
 }
 
-button:hover { background: var(--accent-dark); box-shadow: 0 4px 18px var(--accent-glow); }
-button:active { transform: scale(0.97); box-shadow: none; }
-button:disabled { opacity: 0.55; cursor: default; transform: none; }
+button:hover { background: var(--accent-dark); box-shadow: var(--glow-accent); transform: translateY(-1px); }
+button:active { transform: scale(0.97) translateY(0); box-shadow: none; }
+button:disabled { opacity: 0.45; cursor: default; transform: none; box-shadow: none; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--highlight);
   outline-offset: 2px;
 }
 
@@ -500,13 +542,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   padding: 24px;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(14, 165, 160, 0.16), transparent 60%),
+    radial-gradient(1100px 620px at 50% -12%, rgba(var(--accent-rgb), 0.22), transparent 62%),
+    radial-gradient(900px 500px at 100% 110%, rgba(var(--accent2-rgb), 0.14), transparent 60%),
     var(--bg);
 }
 
 :root[data-theme="dark"] #auth-screen {
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(34, 199, 192, 0.14), transparent 60%),
+    radial-gradient(1100px 620px at 50% -12%, rgba(var(--accent-rgb), 0.26), transparent 62%),
+    radial-gradient(900px 500px at 100% 110%, rgba(var(--accent2-rgb), 0.16), transparent 60%),
     var(--bg);
 }
 
@@ -517,14 +561,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   padding: 36px 30px;
   width: 100%;
   max-width: 400px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   animation: gp-pop-in 0.35s var(--ease-spring);
 }
 
 .auth-card h1 {
   margin: 0 0 6px;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   text-align: center;
   display: flex;
   align-items: center;
@@ -585,7 +630,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .tab-btn.active {
   background: var(--bg-elevated);
   color: var(--text);
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-xs), 0 0 0 1px var(--border);
 }
 
 .auth-form {
@@ -594,8 +639,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   gap: 12px;
 }
 
-.auth-form > button[type="submit"] {
+/* Hero CTAs — the couple of actions per screen that most deserve the
+   brand gradient treatment. Used sparingly, not on every button. */
+.auth-form > button[type="submit"],
+#new-poll-form button[type="submit"] {
   margin-top: 6px;
+  background: var(--brand-gradient);
+  box-shadow: var(--glow-accent);
+}
+.auth-form > button[type="submit"]:hover,
+#new-poll-form button[type="submit"]:hover {
+  background: var(--brand-gradient);
+  filter: brightness(1.08);
+  box-shadow: var(--glow-accent-lg);
 }
 
 /* ---------- App shell ---------- */
@@ -609,7 +665,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   position: sticky;
   top: 0;
   z-index: 20;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border);
 }
 
 .topbar-left {
@@ -676,6 +732,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   padding: 6px 8px;
   gap: 4px;
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
 }
 
 .page-btn {
@@ -725,11 +782,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .page-btn-label { letter-spacing: -0.01em; }
 
-.page-btn:hover { background: var(--bg-subtle); }
+.page-btn:hover { background: var(--bg-subtle); color: var(--text); }
+.page-btn:active { transform: scale(0.96); }
 
 .page-btn.active {
-  color: var(--accent-dark);
+  color: var(--accent);
   background: var(--accent-soft);
+}
+
+.page-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  width: 18px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--brand-gradient);
+  transform: translateX(-50%);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
 }
 
 .page-btn.active .page-btn-icon {
@@ -747,8 +818,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   border-radius: var(--radius-lg);
   padding: 20px;
   margin-bottom: 16px;
-  box-shadow: var(--shadow-xs);
-  transition: box-shadow 0.2s var(--ease);
+  box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: box-shadow 0.2s var(--ease), border-color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .card h2 {
@@ -773,8 +849,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   text-align: center;
   color: var(--muted);
   font-size: 13.5px;
-  padding: 32px 8px;
+  padding: 40px 8px;
   animation: gp-fade-in 0.3s var(--ease);
+  line-height: 1.5;
 }
 
 .positive { color: var(--positive); font-weight: 700; }
@@ -797,7 +874,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   padding: 14px;
   background: var(--bg-subtle);
   animation: gp-fade-up 0.25s var(--ease);
+  transition: border-color 0.2s var(--ease);
 }
+.poll-card:hover { border-color: var(--border-strong); }
 
 .poll-card-header {
   display: flex;
@@ -815,8 +894,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   padding: 2px 8px;
   border-radius: var(--radius-full);
   background: var(--positive-soft);
+  color: var(--positive);
 }
-.poll-closed .poll-card-status { background: var(--danger-soft); }
+.poll-closed .poll-card-status { background: var(--danger-soft); color: var(--danger); }
 
 .poll-card-question {
   font-weight: 700;
@@ -838,14 +918,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
 }
 .poll-option:hover { border-color: var(--accent); }
-.poll-option.my-vote { border-color: var(--accent); background: var(--accent-soft); }
+.poll-option.my-vote { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.25); }
 
 .poll-option-bar {
   position: absolute;
   inset: 0;
-  background: var(--accent-soft);
+  background: var(--brand-gradient-soft);
   z-index: 0;
-  transition: width 0.4s var(--ease);
+  transition: width 0.5s var(--ease-spring);
 }
 
 .poll-option-row {
@@ -1211,8 +1291,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   color: var(--text);
   line-height: 1.6;
 }
-.msg-reaction-chip.mine { background: var(--accent-soft); border-color: rgba(14, 165, 160, 0.3); }
-.msg-reaction-chip:hover { filter: brightness(0.97); }
+.msg-reaction-chip.mine { background: var(--accent-soft); border-color: rgba(var(--accent-rgb), 0.35); }
+.msg-reaction-chip:hover { filter: brightness(1.1); border-color: var(--border-strong); }
 .msg-reaction-count { color: var(--muted); font-weight: 700; }
 
 /* Quoted "replying to" block shown inside a bubble */
@@ -1220,14 +1300,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   border-left: 3px solid var(--accent);
   border-radius: 6px;
   padding: 5px 8px;
   margin-bottom: 5px;
   cursor: pointer;
 }
-:root[data-theme="dark"] .msg-reply-quote { background: rgba(255, 255, 255, 0.06); }
 .msg-reply-quote-name { font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .msg-reply-quote-text {
   font-size: 12.5px;
@@ -1253,6 +1332,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   color: var(--bubble-out-text);
   border-color: transparent;
   border-radius: 16px 16px 4px 16px;
+  box-shadow: var(--shadow-xs), 0 0 0 1px rgba(var(--accent-rgb), 0.12);
 }
 
 .chat-msg .sender {
@@ -1310,7 +1390,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--muted-2);
+  background: var(--highlight);
   animation: gp-typing-bounce 1.2s infinite ease-in-out;
 }
 .typing-indicator-dots span:nth-child(2) { animation-delay: 0.15s; }
@@ -1381,7 +1461,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .chat-form input:focus {
   background: var(--input-bg-focus);
-  border-color: var(--accent);
+  border-color: var(--highlight);
 }
 
 .chat-form button.send-btn {
@@ -1394,8 +1474,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   align-items: center;
   justify-content: center;
   font-size: 17px;
-  box-shadow: var(--shadow-sm);
+  background: var(--brand-gradient);
+  box-shadow: var(--glow-accent);
 }
+.chat-form button.send-btn:hover { background: var(--brand-gradient); filter: brightness(1.1); box-shadow: var(--glow-accent-lg); }
 
 /* ---------- Feed ---------- */
 .feed-page-inner {
@@ -1641,7 +1723,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   padding: 9px 11px;
   border-radius: 10px;
   font-size: 13px;
@@ -1667,8 +1749,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   font-size: 13.5px;
 }
 
-.danger-btn { background: var(--danger); }
-.danger-btn:hover { background: #D6291F; }
+.danger-btn { background: var(--danger); color: white; }
+.danger-btn:hover { background: var(--danger); filter: brightness(0.88); box-shadow: 0 4px 18px rgba(var(--danger-rgb), 0.35); }
 
 .call-grid {
   display: grid;
@@ -1678,7 +1760,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .call-tile {
   position: relative;
-  background: #14201B;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
   aspect-ratio: 4 / 3;
@@ -1745,7 +1828,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .link-btn {
   background: transparent;
-  color: var(--accent-dark);
+  color: var(--accent);
   padding: 4px;
   font-size: 13px;
   font-weight: 600;
@@ -1790,7 +1873,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   max-height: 90vh;
   overflow-y: auto;
   padding: 0 0 24px;
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   animation: gp-sheet-up 0.3s var(--ease-spring);
 }
 
@@ -1806,6 +1890,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   position: sticky;
   top: 0;
   background: var(--card);
+  border-bottom: 1px solid transparent;
   z-index: 1;
 }
 
@@ -1886,7 +1971,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   transition: transform 0.2s var(--ease-spring);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
-.switch input:checked + .switch-slider { background-color: var(--accent); }
+.switch input:checked + .switch-slider { background: var(--brand-gradient); box-shadow: var(--glow-accent); }
 .switch input:checked + .switch-slider::before { transform: translateX(20px); }
 
 /* ---------- Chat header + embedded call bar ---------- */
@@ -1901,7 +1986,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .chat-header-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .chat-header-title { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
-.chat-header-sub { font-size: 11.5px; color: rgba(255, 255, 255, 0.6); margin-top: 1px; }
+.chat-header-sub { font-size: 11.5px; color: var(--header-text-muted); margin-top: 1px; }
 
 /* Small avatar stack: who's currently got the chat tab open */
 .chat-viewers-row {
@@ -2047,7 +2132,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   background: var(--muted-2);
   border: 2px solid var(--card);
 }
-.presence-dot.online { background: var(--positive); }
+.presence-dot.online { background: var(--positive); box-shadow: 0 0 6px rgba(var(--positive-rgb), 0.7); }
 
 /* ---------- Heart burst (double-tap to like a feed post) ---------- */
 .heart-burst {
@@ -2152,10 +2237,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .task-checkbox:hover { border-color: var(--accent); background: transparent; }
 .task-checkbox.checked {
-  background: var(--accent);
+  background: var(--brand-gradient);
   border-color: var(--accent);
+  box-shadow: var(--glow-accent);
 }
-.task-checkbox.checked:hover { background: var(--accent-dark); }
+.task-checkbox.checked:hover { filter: brightness(1.08); }
 
 .task-row-main { flex: 1; min-width: 0; }
 
@@ -2203,7 +2289,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--highlight);
+  box-shadow: 0 0 6px rgba(var(--highlight-rgb), 0.7);
   flex-shrink: 0;
   margin-top: 5px;
 }
@@ -2255,8 +2342,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 /* ---------- Desktop / larger screens ---------- */
 @media (min-width: 720px) {
-  body { background: var(--bg); }
-
   #app-screen {
     max-width: 900px;
     margin: 0 auto;
