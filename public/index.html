@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/icon-192.png" />
 <link rel="apple-touch-icon" href="/icon-192.png" />
-<meta name="theme-color" content="#005e54" />
+<meta name="theme-color" content="#121214" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Gujjar PH" />
@@ -103,16 +103,16 @@
   </header>
 
   <nav class="tabbar">
-    <button class="page-btn active" data-page="expenses">💸 Expenses</button>
-    <button class="page-btn" data-page="balances">📊 Balances</button>
-    <button class="page-btn" data-page="feed">📸 Feed</button>
-    <button class="page-btn" data-page="chat">💬 Chat</button>
+    <button class="page-btn active" data-page="expenses"><span class="page-btn-icon">💸</span><span class="page-btn-label">Expenses</span></button>
+    <button class="page-btn" data-page="balances"><span class="page-btn-icon">📊</span><span class="page-btn-label">Balances</span></button>
+    <button class="page-btn" data-page="feed"><span class="page-btn-icon">📸</span><span class="page-btn-label">Feed</span></button>
+    <button class="page-btn" data-page="chat"><span class="page-btn-icon">💬</span><span class="page-btn-label">Chat</span></button>
   </nav>
 
   <!-- Expenses page -->
   <section id="page-expenses" class="page active">
     <form id="expense-form" class="card">
-      <h2>➕ Add an expense</h2>
+      <h2>Add an expense</h2>
       <input type="text" id="exp-description" placeholder="What was it for? (e.g. Groceries)" required />
       <div class="amount-input-wrap">
         <span class="currency-prefix">Rs.</span>
@@ -150,7 +150,7 @@
   <section id="page-feed" class="page">
     <div class="feed-page-inner">
       <div class="card new-post-card">
-        <h2>📸 Share something</h2>
+        <h2>Share something</h2>
         <form id="post-form">
           <textarea id="post-caption" rows="2" placeholder="What's on your mind?"></textarea>
           <div id="post-media-preview" class="post-media-preview hidden"></div>
