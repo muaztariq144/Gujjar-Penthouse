@@ -16,7 +16,6 @@ let unreadCounts = { feed: 0, chat: 0, home: 0 };
 let storiesByUser = {}; // userId -> array of story objects, newest last
 let myStories = []; // convenience alias for storiesByUser[me.id]
 let storyViewerState = null; // { userId, stories, index, timer }
-let acornStatus = { active: false, hiddenAt: null, moveCount: 0, lastResult: null, leaderboard: [] };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -180,21 +179,6 @@ $('#logout-btn').addEventListener('click', () => {
 // ---------- Modal open/close helpers ----------
 function openModal(id) { $(`#${id}`)?.classList.remove('hidden'); }
 function closeModal(id) { $(`#${id}`)?.classList.add('hidden'); }
-
-// ---------- Lightweight toast notifications (used by the Acorn Hunt) ----------
-function showToast(message, { type = 'default', duration = 3200 } = {}) {
-  const container = $('#toast-container');
-  if (!container) return;
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.textContent = message;
-  container.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add('toast-visible'));
-  setTimeout(() => {
-    toast.classList.remove('toast-visible');
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
-}
 
 document.addEventListener('click', (e) => {
   const closeBtn = e.target.closest('[data-close-modal]');
@@ -361,7 +345,7 @@ async function startApp() {
   renderHomeGreeting();
   renderEventBanner();
   renderEventDancer();
-  syncHeaderHeight();
+  syncTabbarHeight();
 
   await loadUsers();
   await loadMessages();
@@ -370,7 +354,6 @@ async function startApp() {
   await loadNotifications();
   await loadPolls();
   await loadStories();
-  await loadAcornStatus();
   connectSocket();
   setupNotifications();
   maybeAutoJoinCall();
@@ -382,22 +365,22 @@ async function startApp() {
   setupMembersPopup();
   setupStoriesRow();
   setupStoryViewer();
-  setupAcornSearchHandlers();
 }
 
-// ---------- Keep the chat page's height in sync with the real header ----------
-// The topbar can grow taller than its normal size while the wedding dancers
-// (and their speech bubble) are showing, so the chat page's height can't be
-// a hardcoded number — measure the actual header + tabbar height instead.
-function syncHeaderHeight() {
-  const topbar = document.querySelector('.topbar');
+// ---------- Keep the chat composer clear of the fixed bottom tab bar -------
+// The tab bar is position:fixed (so the app frame around it never scrolls
+// or jumps), which means it takes up no space in the layout on its own —
+// the chat page needs to know its real height (it varies with the
+// safe-area inset on notched phones) so its composer doesn't end up
+// rendered underneath it.
+function syncTabbarHeight() {
   const tabbar = document.querySelector('.tabbar');
-  if (!topbar || !tabbar) return;
-  const h = topbar.getBoundingClientRect().height + tabbar.getBoundingClientRect().height;
-  document.documentElement.style.setProperty('--header-tabbar-h', `${Math.round(h)}px`);
+  if (!tabbar) return;
+  const h = tabbar.getBoundingClientRect().height;
+  if (h > 0) document.documentElement.style.setProperty('--tabbar-h', `${Math.round(h)}px`);
 }
-window.addEventListener('resize', syncHeaderHeight);
-window.addEventListener('load', syncHeaderHeight);
+window.addEventListener('resize', syncTabbarHeight);
+window.addEventListener('orientationchange', syncTabbarHeight);
 
 // ---------- Chat kitten (a tiny wandering orange cat, purely for fun) ----------
 let catTimer = null;
@@ -2039,29 +2022,6 @@ function connectSocket() {
     renderStoriesRow();
   });
 
-  socket.on('acorn:hidden', ({ hiddenAt }) => {
-    acornStatus = { ...acornStatus, active: true, hiddenAt, moveCount: 0 };
-    renderAcornCard();
-  });
-
-  socket.on('acorn:moved', ({ moveCount }) => {
-    acornStatus = { ...acornStatus, moveCount };
-    renderAcornCard();
-    if (currentPage === 'home') showToast('🐿️ The acorn just scurried off somewhere new...', { duration: 2200 });
-  });
-
-  socket.on('acorn:found', ({ userId, name, seekTimeMs }) => {
-    acornStatus = { ...acornStatus, active: false, lastResult: { userId, name, seekTimeMs } };
-    renderAcornCard();
-    if (userId !== me?.id) showToast(`🐿️ ${name} caught the acorn in ${formatDuration(seekTimeMs)}!`, { duration: 3500 });
-    loadAcornStatus();
-  });
-
-  socket.on('acorn:expired', () => {
-    acornStatus = { ...acornStatus, active: false };
-    renderAcornCard();
-  });
-
   socket.on('story:viewed', ({ id, viewers }) => {
     for (const list of Object.values(storiesByUser)) {
       const story = list.find((s) => s.id === id);
@@ -2468,117 +2428,6 @@ function setupStoryViewer() {
   $('#story-viewer-close')?.addEventListener('click', closeStoryViewer);
   $('#story-viewer-prev')?.addEventListener('click', () => advanceStory(-1));
   $('#story-viewer-next')?.addEventListener('click', () => advanceStory(1));
-}
-
-// ---------- Acorn Hunt (a moving hidden-token game, played by long-pressing
-// posts, tasks, profiles, or chat messages to search them) ----------
-function formatDuration(ms) {
-  if (ms == null) return '—';
-  const totalSec = Math.round(ms / 1000);
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-}
-
-async function loadAcornStatus() {
-  try {
-    acornStatus = await api('/api/acorn');
-    renderAcornCard();
-  } catch {
-    // Non-fatal — the card just won't update this round.
-  }
-}
-
-function renderAcornCard() {
-  const line = $('#acorn-status-line');
-  const board = $('#acorn-leaderboard');
-  if (!line || !board) return;
-
-  if (acornStatus.active) {
-    line.textContent = `An acorn is loose somewhere in the app 🐿️ — long-press posts, tasks, profiles, or chat messages to search. (It's moved ${acornStatus.moveCount} time${acornStatus.moveCount === 1 ? '' : 's'} so far.)`;
-  } else if (acornStatus.lastResult) {
-    line.textContent = `${acornStatus.lastResult.name} caught the last acorn in ${formatDuration(acornStatus.lastResult.seekTimeMs)}! A new one hides again shortly.`;
-  } else {
-    line.textContent = 'The next hunt is about to start — check back in a moment!';
-  }
-
-  const top = (acornStatus.leaderboard || []).slice(0, 5);
-  board.innerHTML = top.length
-    ? top.map((entry, i) => `
-        <li>
-          <span class="acorn-rank">#${i + 1}</span>
-          <span class="acorn-name">${escapeHtml(entry.name)}</span>
-          <span class="acorn-stat">${entry.finds} find${entry.finds === 1 ? '' : 's'} · fastest ${formatDuration(entry.fastestMs)}</span>
-        </li>
-      `).join('')
-    : '<li class="empty-state">No one has caught the acorn yet — be the first!</li>';
-}
-
-async function handleAcornSearch(type, id, targetEl) {
-  if (!type || !id) return;
-  haptic('medium');
-  try {
-    const result = await api('/api/acorn/search', { method: 'POST', body: JSON.stringify({ type, id }) });
-    if (result.found) {
-      targetEl?.classList.add('acorn-found-flash');
-      setTimeout(() => targetEl?.classList.remove('acorn-found-flash'), 900);
-      showToast(`🐿️ You found the acorn in ${formatDuration(result.seekTimeMs)}!`, { type: 'success', duration: 4000 });
-      haptic('heavy');
-    } else {
-      targetEl?.classList.add('acorn-miss-shake');
-      setTimeout(() => targetEl?.classList.remove('acorn-miss-shake'), 400);
-    }
-  } catch {
-    // Cooldown or network hiccup — fail silently, it's just a game.
-  }
-}
-
-// Wires a long-press ("press and hold") gesture onto every element matching
-// itemSelector inside root, using event delegation so it keeps working as
-// the list's contents are re-rendered (posts/tasks/messages come and go).
-function setupLongPressSearch(root, itemSelector, getLocation) {
-  if (!root || root.dataset.acornWired) return;
-  root.dataset.acornWired = '1';
-  const LONG_PRESS_MS = 550;
-  const MOVE_TOLERANCE = 12;
-  let timer = null;
-  let startX = 0;
-  let startY = 0;
-  let activeEl = null;
-
-  function cancel() {
-    clearTimeout(timer);
-    timer = null;
-    activeEl = null;
-  }
-
-  root.addEventListener('pointerdown', (e) => {
-    const item = e.target.closest(itemSelector);
-    if (!item || !root.contains(item)) return;
-    activeEl = item;
-    startX = e.clientX;
-    startY = e.clientY;
-    timer = setTimeout(() => {
-      const loc = getLocation(item);
-      if (loc && loc.id) handleAcornSearch(loc.type, loc.id, item);
-      timer = null;
-    }, LONG_PRESS_MS);
-  });
-  root.addEventListener('pointermove', (e) => {
-    if (!timer || !activeEl) return;
-    if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE || Math.abs(e.clientY - startY) > MOVE_TOLERANCE) cancel();
-  });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach((evt) => root.addEventListener(evt, cancel));
-}
-
-function setupAcornSearchHandlers() {
-  setupLongPressSearch($('#feed-list'), '.post-card', (el) => ({ type: 'post', id: el.dataset.postId }));
-  setupLongPressSearch($('#home-tasks-list'), '.task-row', (el) => ({ type: 'task', id: el.dataset.taskId }));
-  setupLongPressSearch($('#all-tasks-list'), '.task-row', (el) => ({ type: 'task', id: el.dataset.taskId }));
-  setupLongPressSearch($('#chat-messages'), '.chat-msg-row', (el) => ({ type: 'chat', id: el.dataset.messageId }));
-  setupLongPressSearch($('#page-profile'), '.ig-profile-avatar', () => (me ? { type: 'profile', id: me.id } : null));
-
-  $('#acorn-info-btn')?.addEventListener('click', () => openModal('acorn-info-modal'));
 }
 
 function timeAgo(timestamp) {
