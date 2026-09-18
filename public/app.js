@@ -6,6 +6,9 @@ let socket = null;
 let tasksCache = [];
 let notificationsCache = [];
 let pollsCache = [];
+let onlineUserIds = new Set();
+let currentPage = 'home';
+let unreadCounts = { feed: 0, chat: 0, home: 0 };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -240,17 +243,42 @@ $$('.page-btn').forEach((btn) => {
     $$('.page').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#page-${btn.dataset.page}`).classList.add('active');
+    currentPage = btn.dataset.page;
     // Notifications are marked "seen" server-side the moment they're fetched,
     // so re-fetch each time someone actually opens Home to see fresh ones.
     if (btn.dataset.page === 'home' && me) loadNotifications().catch(() => {});
+    clearTabBadge(btn.dataset.page);
   });
 });
+
+function setTabBadge(tab, count) {
+  const badge = $(`#badge-${tab}`);
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count > 9 ? '9+' : String(count);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function clearTabBadge(tab) {
+  unreadCounts[tab] = 0;
+  setTabBadge(tab, 0);
+}
+
+function bumpTabBadge(tab) {
+  if (currentPage === tab) return; // already looking at it — no need to badge it
+  unreadCounts[tab] = (unreadCounts[tab] || 0) + 1;
+  setTabBadge(tab, unreadCounts[tab]);
+}
 
 // ---------- App startup ----------
 async function startApp() {
   $('#auth-screen').classList.add('hidden');
   $('#app-screen').classList.remove('hidden');
   renderProfileButton();
+  renderHomeGreeting();
 
   await loadUsers();
   await loadMessages();
@@ -266,6 +294,72 @@ async function startApp() {
   setupProfileModal();
   setupPollModal();
   setupTypingIndicator();
+  setupMembersPopup();
+}
+
+// ---------- Home greeting (a little personal touch each time you open the app) ----------
+function renderHomeGreeting() {
+  const lineEl = $('#home-greeting-line');
+  const dateEl = $('#home-greeting-date');
+  if (!lineEl || !me) return;
+  const hour = new Date().getHours();
+  const salutation = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : hour < 21 ? 'Good evening' : 'Good night';
+  const firstName = me.name.trim().split(/\s+/)[0];
+  lineEl.textContent = `${salutation}, ${firstName} 👋`;
+  if (dateEl) {
+    dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+}
+
+// ---------- Members popup (tap the logo/name in the header) ----------
+function memberRowHtml(u) {
+  const online = onlineUserIds.has(u.id);
+  return `
+    <li class="member-row" data-action="view-profile" data-user-id="${u.id}">
+      <span class="avatar-presence-wrap">
+        ${avatarOrInitials(u.id, u.name, '', 44)}
+        <span class="presence-dot ${online ? 'online' : ''}"></span>
+      </span>
+      <div class="member-row-info">
+        <div class="member-row-name">${escapeHtml(u.name)}${u.id === me?.id ? ' (you)' : ''}</div>
+        <div class="member-row-status">${online ? 'Online' : 'Offline'}</div>
+      </div>
+    </li>
+  `;
+}
+
+function renderMembersList() {
+  const list = $('#members-list');
+  if (!list) return;
+  const sorted = [...users].sort((a, b) => {
+    const aOnline = onlineUserIds.has(a.id) ? 0 : 1;
+    const bOnline = onlineUserIds.has(b.id) ? 0 : 1;
+    return aOnline - bOnline || a.name.localeCompare(b.name);
+  });
+  list.innerHTML = sorted.length
+    ? sorted.map(memberRowHtml).join('')
+    : '<li class="empty-state">No roommates yet.</li>';
+}
+
+function setupMembersPopup() {
+  const btn = $('#brand-logo-btn');
+  if (btn && !btn.dataset.wired) {
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', () => {
+      renderMembersList();
+      openModal('members-modal');
+    });
+  }
+
+  const list = $('#members-list');
+  if (list && !list.dataset.wired) {
+    list.dataset.wired = '1';
+    // Opening someone's profile from here should close this popup first,
+    // so the two modals don't stack on top of each other.
+    list.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action="view-profile"]')) closeModal('members-modal');
+    });
+  }
 }
 
 function renderProfileButton() {
@@ -806,7 +900,10 @@ async function handleTaskListClick(e) {
   if (!row) return;
   const taskId = row.dataset.taskId;
 
-  if (e.target.closest('[data-action="toggle-task"]')) {
+  const checkbox = e.target.closest('[data-action="toggle-task"]');
+  if (checkbox) {
+    const aboutToComplete = !checkbox.classList.contains('checked');
+    if (aboutToComplete) spawnConfetti(checkbox);
     try {
       await api(`/api/tasks/${taskId}/toggle`, { method: 'POST' });
     } catch (err) {
@@ -971,6 +1068,72 @@ function renderReplyQuote(replyTo) {
   `;
 }
 
+// ---------- Chat message reactions (tap the ❤️/😂/👍 row that pops up) ----------
+const QUICK_REACTIONS = ['❤️', '😂', '👍', '😮', '😢', '🙏'];
+
+function reactionsBarHtml(reactions) {
+  if (!reactions || Object.keys(reactions).length === 0) return '';
+  const chips = Object.entries(reactions)
+    .filter(([, userIds]) => userIds.length > 0)
+    .map(([emoji, userIds]) => `
+      <button type="button" class="msg-reaction-chip ${userIds.includes(me.id) ? 'mine' : ''}" data-action="toggle-reaction" data-emoji="${emoji}">
+        ${emoji} <span class="msg-reaction-count">${userIds.length}</span>
+      </button>
+    `).join('');
+  return chips ? `<div class="msg-reactions">${chips}</div>` : '';
+}
+
+function closeReactPicker() {
+  document.querySelector('.react-picker-popup')?.remove();
+}
+
+function openReactPicker(row) {
+  closeReactPicker();
+  if (!row) return;
+  const messageId = row.dataset.messageId;
+  const popup = document.createElement('div');
+  popup.className = 'react-picker-popup';
+  popup.innerHTML = QUICK_REACTIONS.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
+  popup.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (btn && socket) socket.emit('chat:react', { messageId, emoji: btn.dataset.emoji });
+    closeReactPicker();
+  });
+  // Fixed-position + clamped so it never gets stuck under the sticky chat
+  // header for messages near the top of the scroll area.
+  document.body.appendChild(popup);
+  const bubbleRect = row.querySelector('.bubble').getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  const headerBottom = document.querySelector('.chat-header')?.getBoundingClientRect().bottom || 0;
+  let top = bubbleRect.top - popupRect.height - 8;
+  if (top < headerBottom + 4) top = bubbleRect.bottom + 8; // not enough room above — show below instead
+  let left = bubbleRect.left + bubbleRect.width / 2 - popupRect.width / 2;
+  left = Math.max(6, Math.min(left, window.innerWidth - popupRect.width - 6));
+  popup.style.position = 'fixed';
+  popup.style.top = `${top}px`;
+  popup.style.left = `${left}px`;
+
+  setTimeout(() => {
+    document.addEventListener('click', function onOutside(e) {
+      if (!popup.contains(e.target) && !e.target.closest('[data-action="open-react-picker"]')) {
+        closeReactPicker();
+        document.removeEventListener('click', onOutside);
+      }
+    });
+  }, 0);
+}
+
+function updateMessageReactionsInDom(messageId, reactions) {
+  const row = document.querySelector(`.chat-msg-row[data-message-id="${messageId}"]`);
+  if (!row) return;
+  const bubble = row.querySelector('.bubble');
+  if (!bubble) return;
+  const existing = bubble.querySelector('.msg-reactions');
+  const html = reactionsBarHtml(reactions);
+  if (existing) existing.remove();
+  if (html) bubble.insertAdjacentHTML('beforeend', html);
+}
+
 function renderMessage(m) {
   if (m.type === 'call-start') return renderCallSystemMessage(m);
 
@@ -987,7 +1150,9 @@ function renderMessage(m) {
           ${renderAttachment(m.attachment)}
           ${m.text ? `<span class="msg-text">${escapeHtml(m.text)}</span>` : ''}
           <span class="msg-time">${time}</span>
+          ${reactionsBarHtml(m.reactions)}
         </div>
+        <button type="button" class="msg-react-hint" data-action="open-react-picker" title="React">🙂</button>
         <button type="button" class="msg-reply-hint" data-action="start-reply" title="Reply">↩</button>
       </div>
     </div>
@@ -1108,6 +1273,20 @@ if (chatMessagesEl) {
         target.classList.add('flash-highlight');
         setTimeout(() => target.classList.remove('flash-highlight'), 900);
       }
+      return;
+    }
+
+    const reactHint = e.target.closest('[data-action="open-react-picker"]');
+    if (reactHint) {
+      openReactPicker(reactHint.closest('.chat-msg-row'));
+      return;
+    }
+
+    const reactionChip = e.target.closest('[data-action="toggle-reaction"]');
+    if (reactionChip) {
+      const row = reactionChip.closest('.chat-msg-row');
+      if (row && socket) socket.emit('chat:react', { messageId: row.dataset.messageId, emoji: reactionChip.dataset.emoji });
+      return;
     }
   });
 
@@ -1245,6 +1424,7 @@ function connectSocket() {
     const box = $('#chat-messages');
     box.insertAdjacentHTML('beforeend', renderMessage(m));
     box.scrollTop = box.scrollHeight;
+    if (m.user_id !== me?.id) bumpTabBadge('chat');
   });
 
   socket.on('user:updated', (u) => {
@@ -1271,11 +1451,28 @@ function connectSocket() {
   // ---------- Typing indicator ----------
   socket.on('chat:typing-users', renderTypingIndicator);
 
+  // ---------- Presence (online/offline) ----------
+  socket.on('presence:snapshot', ({ onlineUserIds: ids }) => {
+    onlineUserIds = new Set(ids);
+    renderMembersList();
+  });
+
+  socket.on('presence:update', ({ userId, online }) => {
+    if (online) onlineUserIds.add(userId); else onlineUserIds.delete(userId);
+    renderMembersList();
+  });
+
+  // ---------- Chat message reactions ----------
+  socket.on('chat:reaction-update', ({ messageId, reactions }) => {
+    updateMessageReactionsInDom(messageId, reactions);
+  });
+
   // ---------- Notifications ----------
   socket.on('notification:new', ({ userId, notification }) => {
     if (userId !== me?.id) return;
     notificationsCache.unshift(notification);
     renderNotifications(notificationsCache);
+    bumpTabBadge('home');
   });
 
   // ---------- Tasks ----------
@@ -1297,6 +1494,7 @@ function connectSocket() {
       if (empty) list.innerHTML = '';
       list.insertAdjacentHTML('afterbegin', renderPostCard(post));
     }
+    if (post.user_id !== me?.id) bumpTabBadge('feed');
   });
 
   socket.on('post:deleted', ({ id }) => {
@@ -1488,8 +1686,8 @@ function renderPostCard(post) {
   const likedByMe = post.likes.includes(me.id);
   const mediaHtml = post.media
     ? (post.media.kind === 'video'
-        ? `<div class="post-card-media"><video src="${post.media.url}" controls></video></div>`
-        : `<div class="post-card-media"><img src="${post.media.url}" alt="" /></div>`)
+        ? `<div class="post-card-media" data-action="dbltap-like"><video src="${post.media.url}" controls></video></div>`
+        : `<div class="post-card-media" data-action="dbltap-like"><img src="${post.media.url}" alt="" /></div>`)
     : '';
 
   return `
@@ -1519,17 +1717,54 @@ function renderPostCard(post) {
   `;
 }
 
+// Instagram-style: double-tap/double-click a post's photo or video to like it,
+// with a big heart animation — even if it's already liked (a fun no-op tap).
+async function likePost(postId) {
+  try {
+    await api(`/api/posts/${postId}/like`, { method: 'POST' });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// A little celebratory confetti burst when a task gets checked off — a small
+// reward that makes finishing chores a bit more satisfying.
+const CONFETTI_COLORS = ['#FF6B6B', '#FFA94D', '#4ECDC4', '#5B8DEF', '#8E7CFF', '#38C793'];
+
+function spawnConfetti(anchorEl) {
+  const rect = anchorEl.getBoundingClientRect();
+  const originX = rect.left + rect.width / 2;
+  const originY = rect.top + rect.height / 2;
+  const piece_count = 14;
+  for (let i = 0; i < piece_count; i++) {
+    const piece = document.createElement('span');
+    piece.className = 'confetti-piece';
+    const angle = (Math.PI * 2 * i) / piece_count + Math.random() * 0.5;
+    const distance = 40 + Math.random() * 40;
+    piece.style.left = `${originX}px`;
+    piece.style.top = `${originY}px`;
+    piece.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    piece.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
+    piece.style.setProperty('--dy', `${Math.sin(angle) * distance}px`);
+    document.body.appendChild(piece);
+    setTimeout(() => piece.remove(), 700);
+  }
+}
+
+function spawnHeartBurst(container) {
+  const heart = document.createElement('div');
+  heart.className = 'heart-burst';
+  heart.textContent = '❤️';
+  container.appendChild(heart);
+  setTimeout(() => heart.remove(), 900);
+}
+
 const feedListEl = $('#feed-list');
 if (feedListEl) {
   feedListEl.addEventListener('click', async (e) => {
     const likeBtn = e.target.closest('[data-action="like-post"]');
     if (likeBtn) {
-      const postId = likeBtn.closest('.post-card').dataset.postId;
-      try {
-        await api(`/api/posts/${postId}/like`, { method: 'POST' });
-      } catch (err) {
-        alert(err.message);
-      }
+      await likePost(likeBtn.closest('.post-card').dataset.postId);
       return;
     }
 
@@ -1543,6 +1778,13 @@ if (feedListEl) {
         alert(err.message);
       }
     }
+  });
+
+  feedListEl.addEventListener('dblclick', (e) => {
+    const media = e.target.closest('[data-action="dbltap-like"]');
+    if (!media) return;
+    spawnHeartBurst(media);
+    likePost(media.closest('.post-card').dataset.postId);
   });
 
   feedListEl.addEventListener('submit', async (e) => {
