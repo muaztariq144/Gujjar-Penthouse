@@ -857,17 +857,26 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'join-call') {
       goToCallPageAndJoin();
+    } else if (event.data && event.data.type === 'open-target' && event.data.target) {
+      openNotificationTarget(event.data.target.targetType, event.data.target.targetId);
     }
   });
 }
 
 // If the app had to be opened fresh (it wasn't running), the service worker
-// opens it at /?join-call=1 instead. Check for that once we've logged in.
+// opens it at /?join-call=1 (or /?openTarget=type:id for a tapped
+// notification) instead. Check for those once we've logged in.
 function maybeAutoJoinCall() {
   const params = new URLSearchParams(location.search);
   if (params.get('join-call') === '1') {
     history.replaceState(null, '', location.pathname);
     goToCallPageAndJoin();
+  }
+  const openTarget = params.get('openTarget');
+  if (openTarget) {
+    history.replaceState(null, '', location.pathname);
+    const [targetType, targetId] = openTarget.split(':');
+    openNotificationTarget(targetType, targetId);
   }
 }
 
@@ -1335,7 +1344,8 @@ function renderNotifications(list) {
   box.innerHTML = list.length === 0
     ? '<li class="empty-state">No notifications yet.</li>'
     : list.map(n => `
-      <li class="notification-row notification-row-${n.type} ${n.read ? '' : 'unread'}">
+      <li class="notification-row notification-row-${n.type} ${n.read ? '' : 'unread'} ${n.target ? 'notification-row-clickable' : ''}"
+          ${n.target ? `data-target-type="${n.target.type}" data-target-id="${n.target.id}"` : ''}>
         <span class="notification-icon">${notificationIcon(n.type)}</span>
         <div class="notification-row-main">
           <div class="notification-text">${escapeHtml(n.text)}</div>
@@ -1344,6 +1354,44 @@ function renderNotifications(list) {
         ${n.read ? '' : '<span class="notification-dot"></span>'}
       </li>
     `).join('');
+}
+
+$('#notifications-page-list')?.addEventListener('click', (e) => {
+  const row = e.target.closest('.notification-row-clickable');
+  if (!row) return;
+  openNotificationTarget(row.dataset.targetType, row.dataset.targetId);
+});
+
+// Jumps to whatever a notification (in-app or a tapped push notification) was
+// actually about, instead of just opening to whichever tab was last active.
+// Retries briefly since the target's data (posts/tasks/polls/messages) may
+// still be loading right after login.
+function waitAndHighlightTarget(getEl, attemptsLeft = 15) {
+  const el = getEl();
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('notif-target-flash');
+    setTimeout(() => el.classList.remove('notif-target-flash'), 1600);
+  } else if (attemptsLeft > 0) {
+    setTimeout(() => waitAndHighlightTarget(getEl, attemptsLeft - 1), 200);
+  }
+}
+
+function openNotificationTarget(targetType, targetId) {
+  if (!targetType || !targetId) return;
+  if (targetType === 'post') {
+    switchToPage('feed');
+    waitAndHighlightTarget(() => document.querySelector(`.post-card[data-post-id="${targetId}"]`));
+  } else if (targetType === 'task') {
+    switchToPage('home');
+    waitAndHighlightTarget(() => document.querySelector(`.task-row[data-task-id="${targetId}"]`));
+  } else if (targetType === 'poll') {
+    switchToPage('home');
+    waitAndHighlightTarget(() => document.querySelector(`.poll-card[data-poll-id="${targetId}"]`));
+  } else if (targetType === 'chat') {
+    switchToPage('chat');
+    waitAndHighlightTarget(() => document.querySelector(`.chat-msg-row[data-message-id="${targetId}"]`));
+  }
 }
 
 // Small numbered badge on the header bell — capped at 9+, like a typical
